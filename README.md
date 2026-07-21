@@ -90,6 +90,14 @@ that most fine-tuning demos never build:
   and registers a challenger; promotion to champion requires beating the incumbent on the
   gate set, then ships blue-green via immutable Container Apps revisions with post-deploy
   smoke tests and one-line traffic rollback.
+- **Testing** — one rule: code that *judges* the model is tested like the model itself. The
+  eval harness has unit tests against hand-computed fixture metrics (every gate and headline
+  number flows through it), a CheckList-style behavioral/invariance suite (perturbed amounts,
+  swapped merchants, injected promo noise) runs inside the promotion gate, the FastAPI
+  gateway's auth/rate-limit edge cases are unit-tested against a mocked backend, and the
+  drift-job threshold logic is tested on fixture logs with known outcomes — on top of CI's
+  lint + unit tests + smoke-train, the container integration test, post-deploy smoke tests,
+  and k6 load-test thresholds wired in as failing gates.
 - **Monitoring & the closed loop** — OpenTelemetry/OTLP metrics pushed to Grafana (latency,
   throughput, category distributions, scam-flag rate — push, because scale-to-zero leaves
   nothing to scrape), per-request LLM-observability traces with a schema-validity flag,
