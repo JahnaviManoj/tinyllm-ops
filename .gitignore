@@ -1,2 +1,7 @@
-.graphswarm/
 project_info/
+data/
+.env
+.venv/
+__pycache__/
+*.gguf
+mlruns/
