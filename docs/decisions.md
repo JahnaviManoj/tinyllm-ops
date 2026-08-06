@@ -153,3 +153,46 @@ SHA-256 verified, byte-identical to the original (cmp). Validation report:
 100% schema-valid across train/val/test/ood with per-class counts. The OOD
 set (25 rows) stays local-only by design (unlicensed-gist rows; see the 1.5
 entry). MLflow dataset logging happens per-training-run in Stage 2.
+
+## 2026-08-05 — Gate set vs frozen final set (tutorial 2.3, Goodhart defense)
+
+The 308-row hand-reviewed test set is split 154/154 into **test_gate_v1** and
+**test_final_v1** (stratified on is_transaction × is_suspected_scam × channel
+× txn_type; seed 23; both published with manifests). Policy:
+
+- **Gate set** (`test_gate.jsonl`, kept locally): the only eval set that
+  promotion decisions, prompt tweaks, and model comparisons may use — in
+  Stage 2 sweeps and the Stage 3+/6 promotion gate. It is EXPECTED to wear
+  out and gets refreshed (gate_v2 from a new different-teacher batch)
+  whenever retraining data refreshes.
+- **Frozen final set** (test_final_v1): exists only in Blob + manifest; the
+  local file is deleted so nothing can evaluate against it casually. Fetched
+  and run as close to once as possible — at Stage 2.9 for the headline
+  number, and again only at major milestones. Its results are never used to
+  choose between models; by the time it runs, the winner is already picked
+  on the gate set.
+- **OOD set** (`data/ood/ood.jsonl`): orthogonal third axis (distribution
+  shift), reported as its own column with its known-limitation caveat;
+  touch-rarely by the same logic.
+- The parent test_v1 remains published for provenance; its local copy is
+  also removed so "the test set" cannot be run as one 308-row blob by
+  accident.
+
+Rationale: val protects against the MODEL overfitting during training; this
+split protects against the PIPELINE (and its operators) overfitting through
+repeated promote/reject decisions across retraining cycles. The split
+predates the first baseline number on purpose — it is only credible if it
+exists before there is anything to game.
+
+## 2026-08-05 — Regex baseline (tutorial 2.4)
+
+`regex_baseline.py` derives one regex per shape in templates.py automatically
+(literals escaped with whitespace-flexible runs, placeholders as capture
+groups) — i.e. it IS the per-bank template list a real expense app maintains,
+kept honest by construction. Results: **val (seen shapes) 63% match rate** —
+and on matched rows amounts/txn_type are ~100% correct, counterparty ~96% —
+but category macro-F1 ≈ 0.01 (a regex cannot know SWIGGY is food) and the
+36% it misses are the style variations (truncation, Hinglish, reformatted
+amounts). **Gate set (unseen real-world formats): 0% match — total failure.**
+That generalization cliff is the motivating number for fine-tuning; the
+model's job is to beat 63%→0% with graceful degradation instead.
