@@ -1,0 +1,22 @@
+# Generation config for train_v1 / val_v1 (referenced by their manifests).
+# Reproducing the dataset: uv run python -m tinyllm.data_gen \
+#   --out data/generated/train.jsonl --val-out data/generated/val.jsonl \
+#   --val-frac 0.12 --per-cell 7 --neg-per-template 25 --seed 42
+# Teacher outputs are nondeterministic, so byte-identical reproduction comes
+# from the manifest hash + Blob, not from re-running generation.
+teacher_model: gemini-3.5-flash-lite
+test_teacher_model: gemini-3.5-flash        # 1.4 test set (different on purpose)
+scam_teacher_model: gemini-3.1-flash-lite   # scam specs only (3.5-flash refuses)
+per_cell: 7
+neg_per_template: 25
+val_frac: 0.12
+seed: 42
+dedupe:
+  method: minhash-lsh
+  threshold: 0.85
+  num_perm: 128
+normalizations:                             # applied at ingest; see docs/decisions.md
+  - fix_doubled_currency                    # "Rs.INR 450" -> "Rs.450"
+  - normalize_currency                      # "Rs."/"₹" -> "INR"
+  - normalize_amount                        # amounts always two decimals ("2000.00")
+  - looks_like_sms_filter                   # drops teacher refusals/meta-prose

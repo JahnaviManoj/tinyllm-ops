@@ -1,0 +1,9 @@
+{
+  "name": "val",
+  "version": "v1",
+  "sha256": "09855bd0919f4f6903be2eb498d3d0793279a81431c44d7712adf30e8e0eeeae",
+  "num_examples": 440,
+  "blob_path": "datasets/09855bd0919f4f6903be2eb498d3d0793279a81431c44d7712adf30e8e0eeeae/val.jsonl",
+  "generator_config": "configs/datagen_v1.yaml",
+  "seed": 42
+}
