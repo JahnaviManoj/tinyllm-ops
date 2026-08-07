@@ -32,8 +32,8 @@ schema-valid record:
   "currency": "INR",
   "counterparty": "Swiggy",
   "account_tail": "1234",
-  "channel": "upi",
-  "category": "food_delivery",
+  "channel": "UPI",
+  "category": "food",
   "is_suspected_scam": false
 }
 ```
@@ -44,13 +44,22 @@ an honest baseline ladder (regex parser → zero-shot 270M → few-shot 270M →
 model → fine-tuned 270M), evaluated both on held-out data and on a real-world
 out-of-distribution set the training generator never saw.
 
-| Model | Test accuracy | OOD accuracy | Serving cost |
+| Model | Exact match (gate set)¹ | OOD accuracy² | Serving cost |
 |---|---|---|---|
-| Per-template regex (industry baseline) | X% | fails on unseen templates | ~free |
-| Gemma 270M zero-shot | X% | X% | CPU |
-| Gemma 270M few-shot | X% | X% | CPU |
-| Frontier model few-shot | X% | X% | API $$ |
+| Per-template regex (industry baseline) | 0% — matched 0/154 unseen formats³ | fails on unseen templates | ~free |
+| Gemma 3 270M zero-shot | 0% (no schema-valid output at all) | ² | CPU |
+| Gemma 3 270M few-shot | 1.3% | ² | CPU |
+| Gemma 4 26B few-shot (~96× bigger) | 34% (scam P/R 1.0/1.0) | ² | API $$ |
 | **Gemma 270M fine-tuned (this repo)** | **Y%** | **Y%** | **CPU, ~$0/mo** |
+
+¹ Strict metric: output must parse AND validate against the schema with *every* field exactly
+right, measured on 154 hand-reviewed messages written by a different model than the training
+teacher. All runs logged in MLflow; details in [docs/decisions.md](docs/decisions.md).
+² OOD column is filled exactly once, when the final model is evaluated — the eval-set
+discipline (gate vs frozen vs OOD) exists so no number here can be quietly overfit to.
+³ On formats it *has* patterns for, regex extracts amounts/directions near-perfectly — but it
+matched none of the 154 out-of-template messages, and it can never infer categories. That
+generalization cliff is the reason this project exists.
 
 ## Why the engineering is the point
 

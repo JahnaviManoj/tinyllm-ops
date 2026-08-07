@@ -196,3 +196,24 @@ but category macro-F1 ≈ 0.01 (a regex cannot know SWIGGY is food) and the
 amounts). **Gate set (unseen real-world formats): 0% match — total failure.**
 That generalization cliff is the motivating number for fine-tuning; the
 model's job is to beat 63%→0% with graceful degradation instead.
+
+## 2026-08-06 — Zero/few-shot baselines (tutorial 2.5), gate set, 154 rows
+
+Ladder so far (all logged to MLflow experiment "baselines", local mlruns
+until 2.8 re-points tracking at Azure ML):
+
+| baseline                       | schema-valid | exact match | scam P/R  |
+|--------------------------------|--------------|-------------|-----------|
+| regex (2.4)                    | 0% matched   | 0%          | —         |
+| zero-shot gemma-3-270m-it      | 0%           | 0%          | 0/0       |
+| few-shot gemma-3-270m-it       | 15%          | 1.3%        | 0.33/0.20 |
+| few-shot Gemma-4-26B (API)     | 43%          | 34%         | 1.0/1.0   |
+
+Notes: the 270M runs local fp32 (fp16 overflows Gemma on pre-Ampere GPUs —
+all-pad outputs; caught in smoke test). Big model is Gemma-4-26B via Gemini
+API — deliberately NOT the gemini-3.5-flash family that wrote the test set,
+so the big baseline isn't grading its own homework. Few-shot examples come
+from train.jsonl only. "schema-valid" is strict: JSON that parses AND
+validates against ExpenseRecord (amounts as strings etc.) — the same bar
+every ladder rung including the fine-tune is held to. The 2.7 fine-tune's
+target: beat 34% exact from a model ~96x its size.
