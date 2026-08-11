@@ -149,7 +149,7 @@ def main():
     parser.add_argument("--out", default="data/generated/test_unreviewed.jsonl")
     parser.add_argument(
         "--train-pool",
-        default="data/generated/train.jsonl.raw",
+        default="data/generated/train.jsonl",
         help="existing train data to dedupe the test set against",
     )
     parser.add_argument(

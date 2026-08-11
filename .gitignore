@@ -6,3 +6,4 @@ __pycache__/
 *.gguf
 mlruns/
 mlflow.db
+outputs/

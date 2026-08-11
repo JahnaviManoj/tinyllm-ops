@@ -1,0 +1,9 @@
+{
+  "name": "train",
+  "version": "v2",
+  "sha256": "844385594c0b20ef12132916118a5f18d9d4b39fcaf9d739cb1747088f01969a",
+  "num_examples": 3870,
+  "blob_path": "datasets/844385594c0b20ef12132916118a5f18d9d4b39fcaf9d739cb1747088f01969a/train_v2.jsonl",
+  "generator_config": "configs/datagen_v1.yaml",
+  "seed": 42
+}

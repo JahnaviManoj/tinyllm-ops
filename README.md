@@ -50,7 +50,7 @@ out-of-distribution set the training generator never saw.
 | Gemma 3 270M zero-shot | 0% (no schema-valid output at all) | ² | CPU |
 | Gemma 3 270M few-shot | 1.3% | ² | CPU |
 | Gemma 4 26B few-shot (~96× bigger) | 34% (scam P/R 1.0/1.0) | ² | API $$ |
-| **Gemma 270M fine-tuned (this repo)** | **Y%** | **Y%** | **CPU, ~$0/mo** |
+| **Gemma 270M fine-tuned (this repo)** | **7.8%** (frozen final: 3.2%) | **0%** | **CPU, ~$0/mo** |
 
 ¹ Strict metric: output must parse AND validate against the schema with *every* field exactly
 right, measured on 154 hand-reviewed messages written by a different model than the training
@@ -128,6 +128,8 @@ data-poisoning threat model.
 
 Full project docs: [PROJECT.md](PROJECT.md) (definition & architecture) ·
 [PLAN.md](PLAN.md) (stage-by-stage build checklists) ·
+[project_info/RETRAIN_PLAN.md](project_info/RETRAIN_PLAN.md) (the researched plan to close
+the Stage 2 generalization gap) ·
 [ALTERNATIVES.md](ALTERNATIVES.md) (every tool choice vs the industry-standard alternatives,
 verified against 2025–26 practice, with the "why X over Y" for each). The design went through
 an adversarial review before building — every finding's resolution is captured in the ADRs.
