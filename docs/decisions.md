@@ -341,3 +341,104 @@ is the champion's LoRA adapter (MLflow run champion-exp_009, a few MB) plus
 the reconstruction recipe logged as a run param: base gemma-3-270m-it fp32 +
 adapter + merge_and_unload reproduces the merged model bit-for-bit given the
 pinned base. Proper registry upload happens at the Stage 3 registry step.
+
+## 2026-08-11 — RETRAIN_PLAN Phase 1: FinEE audit (PASS, two adaptations)
+
+Audited Ranjit0034/finee-dataset (Apache 2.0) before spending any quota.
+Delivers: 152,519 rows in chat format; after stripping instruction wrappers
+(seven phrasing variants, stripped generically) and exact-dedupe, **128,201
+unique clean SMS** — ~79% Latin/English + ~21% Hindi/Tamil/Telugu scripts,
+sane lengths (p50 127 chars), 0% DLT sender prefixes (our augmentation stays
+useful). Cached to data/finee/all_sms.jsonl (gitignored).
+
+Adaptation 1: the card's "2,419 real ICICI rows" are NOT marked in the data
+(only field is `messages`), so the planned real-row quarantine + real-eval
+reserve is not executable. The main value (text diversity at scale) stands.
+Adaptation 2: FinEE's own labels use a different philosophy (an EMI-due
+REMINDER is labeled type=debit; under our schema no money moved →
+is_transaction=false) — confirms the plan to use their TEXTS only and have
+Gemma-4-26B write labels in OUR schema. Their labels are kept per-row as a
+cross-check signal, never as training truth.
+
+## 2026-08-11 — RETRAIN Phase 2 decisions: teacher labels over FinEE labels; Latin-script only
+
+**Why the 26B teacher relabels FinEE texts instead of using FinEE's own labels
+(or adopting FinEE's schema wholesale):**
+1. *Schema gap* — FinEE has no `is_transaction`, no `is_suspected_scam` (a
+   headline product feature), no `channel`; amounts are floats; its category
+   taxonomy differs (grocery/bills/healthcare/emi/cashback...). Three of our
+   nine fields cannot be converted because they were never recorded.
+2. *Convention conflict* — FinEE labels an EMI due REMINDER as type=debit;
+   under our contract no money moved (is_transaction=false). Training on
+   their conventions would institutionalize the exact false-positive class
+   our hand-review corrected in the gold sets. Mixed label conventions are
+   the exp_010 lesson.
+3. *Unvetted quality* — their synthetic labels are grammar-generated and
+   nobody has sampled them against anything we trust; teacher labels pass
+   our schema gate at ingest and a 100-row human spot-check (Phase 4 gate).
+4. *Switching schemas is the expensive path, not the cheap one* — the schema
+   is the product contract: adopting theirs would invalidate the eval
+   harness + its tests, the hand-reviewed test/gate/final sets (human
+   re-review), the OOD labels, every baseline number incl. the 7.8%
+   incumbent, and the serve-time grammar design (their "include only if
+   found" style = variable-key JSON, literally our failure mode). All that
+   to skip ~500 labeling calls — the cheapest step in the plan.
+FinEE labels are still used where they overlap (amount, debit/credit) as a
+free AGREEMENT cross-check on teacher labels — two imperfect labelers
+agreeing beats either alone; disagreements get flagged/dropped.
+
+**Latin-script only (English/Hinglish):** the entire eval suite is
+English/Hinglish; training Devanagari/Tamil/Telugu spends label quota on
+skills nothing measures and rows the owner cannot spot-check. ~101K
+Latin-script rows remain — 10x our need. Multilingual = future work behind
+multilingual eval sets.
+
+## 2026-08-12 — RETRAIN Phase 4: spot-check PASSED at 1% error
+
+Owner reviewed all 100 sampled rows (disagreement rows prioritized): 1
+teacher error (row dropped), 99 accepted — a 1% error rate against the <10%
+gate. In all 16 rows where FinEE's labels disagreed with the teacher on both
+amount and type, the teacher was right (FinEE's synthetic labels grab
+balances / mislabel reminders — vindicating the relabel decision).
+Convention settled during review: for cashback/rewards credits, counterparty
+= the granting merchant/provider as named in the SMS (e.g. "Paytm"), not
+null. Teacher labels are cleared for training use.
+
+## 2026-08-12 — v3 poisoning post-mortem: 63 bank STATEMENTS in the SMS pool
+
+First v3 sweep run (exp_012) collapsed on the gate: 12% parse, 0% exact,
+hallucinated keys ("is_statement"!), pretty-printed JSON — while showing 85%
+teacher-forced val accuracy. Diagnosis ruled out, in order: the merge
+(unmerged adapter equally broken), TRL's processed sequences (decoded and
+verified byte-correct incl. single EOS — also retroactively exonerating the
+2.9 EOS hypothesis), label key shapes and key ORDER (uniform in v1 and v3),
+and overtraining (checkpoint-500 already broken). The tell was the adapter
+emitting degenerate junk on its own training base: **63 FinEE rows are not
+SMS but full ASCII-art ACCOUNT STATEMENTS** (400+ chars, ====== runs) that
+passed the harvest filters (which checked scripts and minimum length, never
+maximum or repetition). Degenerate repeated-token sequences are gradient
+poison for a small LoRA; 63 rows x 4 epochs sufficed. The hallucinated
+"is_statement" key was literally the model blending the statement documents
+into the schema.
+
+Fix: assemble_v3 junk guard — SMS must be <=320 chars with no 10+ repeated-
+char run (drops the 63). v3/val_v2 rebuilt and republished (same manifest
+names, new hashes; the poisoned build never produced a champion). Lesson
+appended to the running list: validate INPUTS against the physical medium
+("an SMS is short by definition"), not just labels against the schema.
+
+## 2026-08-13 — Iteration-1 verdict: v3 fixes mechanics, not judgment; paused for iteration 2
+
+Cleaned-v3 sweep results (gate): exp_012 3.9% exact (parse 75%, amounts 62%,
+is_transaction 62% — all majorly up from exp_009's 60/48/49) but category 19%
+/ counterparty 34% unchanged and scam recall 0 (94 scam rows = 0.8% of train,
+class starvation). exp_013 (lr 1e-4) 1.9% — undertrained, 2e-4 dominance
+reconfirmed. exp_014 (r16) stopped at ~45% by owner call: lowest-information
+arm. **exp_009 (7.8%) remains champion; the frozen final was NOT touched.**
+The iteration-2 data-quality plan (scam injection from verified smishing
+corpora, real negative texture, merchant→category rulebook, class-balance
+guards in validate.py, val rebalance) is in RETRAIN_PLAN.md. One-shot
+pipeline scripts (finee_select/finee_label/spotcheck/assemble_v3) deleted in
+cleanup; their intermediate DATA is kept in data/finee/ for iteration 2.
+Process lesson, learned twice and now generalized (1.4 scam refusals; FinEE):
+**search for existing datasets before engineering around generation.**
