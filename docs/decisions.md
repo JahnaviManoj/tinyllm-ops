@@ -442,3 +442,89 @@ pipeline scripts (finee_select/finee_label/spotcheck/assemble_v3) deleted in
 cleanup; their intermediate DATA is kept in data/finee/ for iteration 2.
 Process lesson, learned twice and now generalized (1.4 scam refusals; FinEE):
 **search for existing datasets before engineering around generation.**
+
+## 2026-09-03 — Era 2 reboot (R0): plan v2, and Qwen3.5 checkpoints verified & pinned
+
+**The reboot decision:** Stage-2 evidence says the 270M's failures are capability
+failures (judgment fields flat across three data iterations), so Era 2 swaps the
+student for Qwen3.5-2B (main) + Qwen3.5-0.8B (efficiency comparison) and keeps
+everything else — schema, data pipeline, eval discipline, platform stages. Full
+plan in project_info/PLAN_V2.md; a ChatGPT-proposed from-scratch restart was
+evaluated and rejected (mostly re-derived this design; its dataset suggestions
+were worse than our audited sources). Era-1 docs archived to project_info/archive/.
+Eval-era rule: gate_v1 is worn (~15 decisions) and final_v1/OOD are spent, so Era 2
+builds gate_v2/final_v2 and never mixes numbers across gate versions.
+
+**R0.3 checkpoint verification (empirical, transformers 5.16.1 from the lockfile):**
+
+- Pins (from the HF API, 2026-09-03): `Qwen/Qwen3.5-2B` @
+  `15852e8c16360a2fea060d615a32b45270f8a8fc`, `Qwen/Qwen3.5-0.8B` @
+  `2fc06364715b967f1860aea9cf38778875588b17` (both last modified 2026-03-02).
+  License apache-2.0, ungated — no HF license-acceptance step (unlike Gemma).
+- **There is no text-only instruct trim at these sizes.** The post-trained
+  checkpoints ARE multimodal (`Qwen3_5ForConditionalGeneration`,
+  pipeline image-text-to-text; the -Base repos are multimodal too). Non-issue in
+  practice, verified by loading: `AutoModelForCausalLM` maps model_type `qwen3_5`
+  → `Qwen3_5ForCausalLM`, i.e. the text tower only — train.py's existing loader
+  works unchanged and vision weights are never touched.
+- Chat template present (ChatML), EOS `<|im_end|>`. The template pre-fills an
+  EMPTY `<think>…</think>` block at the start of the assistant turn (non-thinking
+  default). Consequence: training prompts must be built with
+  `apply_chat_template(add_generation_prompt=True)` and the completion starts
+  AFTER the think block — prompt bytes now come from the tokenizer, not a literal
+  string, and train/eval/serve must all go through the same helper.
+- Hybrid attention: only every 4th layer is full attention (`q/k/v/o_proj`);
+  the rest are GatedDeltaNet (`in_proj_qkv`, `in_proj_z`, `in_proj_a`,
+  `in_proj_b`, `out_proj`); MLP is `gate/up/down_proj`. Verified from the
+  modeling source. Era-1's Gemma target list would silently LoRA only every 4th
+  layer — target_modules must use the 12-name list.
+- GGUF/llama.cpp support confirmed viable: official-community Qwen3.5-2B GGUFs
+  exist with 100Ks of downloads (bartowski, unsloth, lmstudio-community) —
+  Stage 4's serving path is derisked.
+- Dependency floors already in pyproject (transformers>=5.14.1, trl>=1.9.0,
+  peft>=0.19.1, bitsandbytes>=0.49.2, accelerate>=1.14.0); pyproject/uv.lock
+  changes pending the owner's commit.
+
+## 2026-09-03 — Era-2 adversarial review: pre-registered decision rules
+
+Three independent adversarial review passes (code-correctness vs repo+installed
+libs, ML methodology, cross-document consistency) ran against PLAN_V2/TUTORIAL_V2;
+both docs corrected same-day. The binding methodology rules, pre-registered here
+BEFORE any Era-2 training or baseline run:
+
+1. **Tie rule:** on the gate set, a difference of <10 rows is a tie (≈3pp on a
+   ~300-row gate — inside binomial noise; Era 1 argmax'd differences of a handful
+   of rows). Ties break by: fewer epochs → lower lr → smaller rank → smaller
+   model. model_eval stores per-row correctness; scripts/mcnemar.py reports the
+   exact p-value with any claimed win. Success bar: 2B-ft beats 26B few-shot by
+   ≥10 rows on gate_v2.
+2. **Gate sizing:** ~450–500 generated rows, split 2:1 gate:final (≈300/≈150);
+   scam spec raised 20→~60 so scam recall stops moving in 10pp steps (gate_v1 had
+   10 scam rows). Review budget ~3–4 h.
+3. **Real-scam holdout:** ~60 finance-flavored Mendeley smishing rows reserved as
+   an eval-only slice (scam_holdout), never trained — otherwise every real scam
+   text is spent on training and scam recall is only ever measured on synthetic
+   scams. Spent-once alongside final_v2/OOD.
+4. **Rulebook ordering + scope:** rulebook.py committed BEFORE the first gate_v2
+   row is reviewed (git history enforces "never mined from gate/final"); patterns
+   word-bounded both sides (the draft's \blic matched "license"); corrections
+   apply only when the matched merchant IS the labeled counterparty; at Stage 4
+   the guard is reported as a separate column, never silently folded in.
+5. **Sweep:** all 4 primary runs gate-evaluated (no val-loss shortlisting — val
+   was proven blind in Era 1); one refinement run is an exact seed replicate of
+   the leader, sizing the era's noise floor for rule 1.
+6. **Pre-registration of the bar:** the 26B few-shot config (shot count, exemplar
+   pool=train_v4, exemplar seed) and one prompt policy per rung get recorded here
+   before Stage-2 runs; not tunable afterwards.
+7. **Audit-model rule:** gate_v2's AI label audits use a model family disjoint
+   from the gate teacher (Gemini) and all ladder models (Gemma/Qwen), on a
+   no-training endpoint.
+8. **Known circularity, stated up front:** the 26B baseline also wrote most of
+   train_v4's labels; every ladder rung therefore reports the field breakdown
+   (schema-valid vs judgment fields) next to exact-match so the win mechanism is
+   visible. final_v2 is same-distribution as gate_v2; generalization claims rest
+   on OOD + scam_holdout.
+9. **Dedupe correction:** train_v3 ⊉ train_v1 (445 v1 texts absent — verified);
+   the gate_v2 dedupe pool lists train_v1, val_v1, val_v2, train_v3 and all
+   candidate files explicitly. Corpus-sourced (UK) rows are exempt from sender-ID
+   augmentation via a source field.

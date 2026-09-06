@@ -13,6 +13,20 @@ FIELDS = [
 ]
 
 
+def row_correct(prediction: str, gold: dict) -> bool:
+    """Exact match for ONE row — the unit the tie rule / McNemar test counts.
+    Same definition evaluate() uses for exact_match: parse the raw string as an
+    ExpenseRecord, every field equal (scam flag included); unparseable = wrong."""
+    try:
+        pred = ExpenseRecord.model_validate_json(prediction)
+    except Exception:
+        return False
+    g = ExpenseRecord.model_validate(gold)
+    return all(getattr(pred, f) == getattr(g, f) for f in FIELDS) and (
+        pred.is_suspected_scam == g.is_suspected_scam
+    )
+
+
 def evaluate(predictions: list[str], gold: list[dict]) -> dict:
     # an empty eval set is a zeroed report, never a pass: every key downstream gates
     # read stays present, and nothing divides by zero
@@ -36,21 +50,20 @@ def evaluate(predictions: list[str], gold: list[dict]) -> dict:
 
     fields = FIELDS
     field_acc = {f: 0 for f in fields}
-    exact = 0
     for pred, g in zip(parsed, gold):
         g_rec = ExpenseRecord.model_validate(g)
         if pred is None:
             continue
-        hits = 0
         for f in fields:
             if getattr(pred, f) == getattr(g_rec, f):
                 field_acc[f] += 1
-                hits += 1
-        if hits == len(fields) and pred.is_suspected_scam == g_rec.is_suspected_scam:
-            exact += 1
+    # one definition of "this row is right" — shared with model_eval --rows-out
+    exact = sum(row_correct(p, g) for p, g in zip(predictions, gold))
 
     n = len(gold)
-    y_true = [g["is_suspected_scam"] for g in gold]
+    y_true = [
+        bool(g.get("is_suspected_scam", False)) for g in gold
+    ]  # key may be absent
     y_pred = [(p.is_suspected_scam if p else False) for p in parsed]
     return {
         "json_parse_rate": 1 - parse_fail / n,

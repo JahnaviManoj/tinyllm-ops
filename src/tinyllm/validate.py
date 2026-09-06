@@ -69,6 +69,17 @@ def main():
                 f"note: {non_iso} labels have a non-ISO currency (e.g. 'Rs.' instead "
                 f"of 'INR') — teacher artifact, see docs/decisions.md"
             )
+        # class-balance guards (era 2): starvation caught BEFORE training
+        n = len(examples)
+        if n:
+            scam = sum(1 for ex in examples if ex["label"].get("is_suspected_scam"))
+            neg = sum(1 for ex in examples if not ex["label"].get("is_transaction"))
+            if scam / n < 0.02:
+                print(
+                    f"WARN: scam share {100 * scam / n:.1f}% < 2% — class starvation risk"
+                )
+            if not 0.05 <= neg / n <= 0.40:
+                print(f"WARN: negative share {100 * neg / n:.1f}% outside 5–40% band")
         odd_amount = sum(
             1
             for ex in examples

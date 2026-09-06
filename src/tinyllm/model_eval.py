@@ -1,23 +1,31 @@
-"""Evaluate a merged fine-tuned model on a labeled JSONL file (tutorial 2.9).
+"""Evaluate a merged fine-tuned model on a labeled JSONL file (tutorial §2.4).
 
-Used for winner selection on the gate set, the once-only frozen-final/OOD
-eval, and later the Stage 3 promotion gate. Prompts come from tinyllm.prompt —
-the same bytes the model saw in training; using any other prompt here would
-measure train/serve skew, not the model.
+Used for winner selection on the gate set, the once-only frozen-final/OOD/
+scam-holdout eval, and later the Stage 3 promotion gate. Prompts come from
+tinyllm.prompt — the same bytes the model saw in training; using any other
+prompt here would measure train/serve skew, not the model.
 
-CLI: uv run python -m tinyllm.model_eval --model outputs/exp_001/merged \
-        --data data/generated/test_gate.jsonl --run-name gate-exp_001
+--chat      chat-template the prompt (Qwen, Era 2). MUST match how the model
+            was trained: --chat for exp_1xx, no flag for the Era-1 270M runs.
+--rows-out  per-row correctness JSON for scripts/mcnemar.py (the tie rule).
+
+CLI: uv run python -m tinyllm.model_eval --model outputs/exp_101/merged --chat \
+        --data data/generated/test_gate_v2.jsonl --run-name gate2-exp_101 \
+        --rows-out outputs/exp_101/gate2_rows.json
 """
 
 import argparse
 import json
+import os
 
 from tinyllm.baselines import extract_json
-from tinyllm.eval import evaluate
-from tinyllm.prompt import build_prompt
+from tinyllm.eval import evaluate, row_correct
+from tinyllm.prompt import build_prompt, chat_prompt
 
 
-def predict_merged(model_dir: str, sms_list: list[str]) -> list[str]:
+def predict_merged(
+    model_dir: str, sms_list: list[str], chat: bool = False
+) -> list[str]:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -29,9 +37,13 @@ def predict_merged(model_dir: str, sms_list: list[str]) -> list[str]:
     model.eval()
     outs = []
     for i, sms in enumerate(sms_list):
-        # Raw completion prompt — identical bytes to training; NO chat template,
-        # because training didn't use one either (train/serve consistency).
-        inputs = tok(build_prompt(sms), return_tensors="pt").to(device)
+        # Identical bytes to training. chat: the template string already
+        # carries every special token, so add none (TRL tokenized the training
+        # prompt the same way). raw: era-1 behaviour, unchanged.
+        text_in = chat_prompt(tok, sms) if chat else build_prompt(sms)
+        inputs = tok(text_in, return_tensors="pt", add_special_tokens=not chat).to(
+            device
+        )
         with torch.no_grad():
             out = model.generate(
                 **inputs,
@@ -53,24 +65,40 @@ def eval_model(
     data_path: str,
     run_name: str | None = None,
     experiment: str = "tinyllm-finetune",
+    chat: bool = False,
+    rows_out: str | None = None,
 ) -> dict:
     rows = [json.loads(line) for line in open(data_path)]
-    preds = predict_merged(model_dir, [r["sms"] for r in rows])
+    preds = predict_merged(model_dir, [r["sms"] for r in rows], chat=chat)
     report = evaluate(preds, [r["label"] for r in rows])
+    if rows_out:  # per-row verdicts — what McNemar pairs up
+        per = [
+            {"sms": r["sms"], "correct": row_correct(p, r["label"])}
+            for p, r in zip(preds, rows)
+        ]
+        os.makedirs(os.path.dirname(rows_out) or ".", exist_ok=True)
+        json.dump(per, open(rows_out, "w"))
     if run_name:
         import mlflow
 
         mlflow.set_experiment(experiment)
         with mlflow.start_run(run_name=run_name):
             mlflow.log_params(
-                {"model_dir": model_dir, "data": data_path, "n": len(rows)}
+                {
+                    "model_dir": model_dir,
+                    "data": data_path,
+                    "n": len(rows),
+                    "chat": chat,
+                }
             )
             for k, v in report.items():
                 if isinstance(v, dict):
                     mlflow.log_metrics({f"field_acc_{f}": acc for f, acc in v.items()})
                 else:
                     mlflow.log_metric(k, v)
-    print(f"== {model_dir} on {data_path} ({len(rows)} rows)")
+            if rows_out:
+                mlflow.log_artifact(rows_out)  # survives the Colab VM
+    print(f"== {model_dir} on {data_path} ({len(rows)} rows, chat={chat})")
     print(json.dumps(report, indent=2))
     return report
 
@@ -83,16 +111,27 @@ def main():
         description="Evaluate a merged model on labeled JSONL."
     )
     parser.add_argument(
-        "--model", required=True, help="merged model dir, e.g. outputs/exp_001/merged"
+        "--model", required=True, help="merged model dir, e.g. outputs/exp_101/merged"
     )
     parser.add_argument("--data", required=True)
     parser.add_argument(
         "--run-name", default=None, help="log to MLflow under this run name"
     )
     parser.add_argument("--experiment", default="tinyllm-finetune")
+    parser.add_argument(
+        "--chat", action="store_true", help="chat-template prompts (Qwen models)"
+    )
+    parser.add_argument(
+        "--rows-out", default=None, help="write per-row exact-match JSON (for McNemar)"
+    )
     args = parser.parse_args()
     eval_model(
-        args.model, args.data, run_name=args.run_name, experiment=args.experiment
+        args.model,
+        args.data,
+        run_name=args.run_name,
+        experiment=args.experiment,
+        chat=args.chat,
+        rows_out=args.rows_out,
     )
 
 

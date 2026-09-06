@@ -1,19 +1,26 @@
-"""Zero-shot / few-shot baselines (tutorial 2.5) — the "before" numbers.
+"""Zero-shot / few-shot baselines (tutorial §2.6) — the "before" numbers.
 
-The ladder this file provides rungs for:
-    regex → zero-shot 270M → few-shot 270M → few-shot BIG model → fine-tuned 270M
+The Era-2 ladder this file provides rungs for:
+    regex → zero-shot local → few-shot local → few-shot BIG → fine-tuned
 
-- zero-270m / few-270m: google/gemma-3-270m-it runs locally (fits a 4GB GPU).
-- few-big: Gemma-4-26B via the Gemini API — ~96x the student's size, and a
-  different model family from the test-set teacher (gemini-3.5-flash), so the
-  big baseline is not grading its own homework.
+- zero-local / few-local: any HF instruct model, pinned by --local-model /
+  --local-revision (Era 1: gemma-3-270m-it; Era 2: Qwen3.5-2B and -0.8B).
+  predict_local applies the tokenizer's chat template itself — there is no
+  --chat flag here because the base instruct model has never seen our
+  training prompt; the baseline IS "what the model does with a chat request".
+- few-big: Gemma-4-26B via the Gemini API — a different model family from
+  the test-set teacher (gemini-3.5-flash), so the big baseline is not grading
+  its own homework.
 
-Few-shot examples come from TRAIN data only — never from the gate set being
-measured. Every run logs params + metrics to MLflow (local ./mlruns until 2.8
-points tracking at Azure ML).
+Few-shot exemplars come from --train-pool (train data only — never from the
+gate being measured), chosen deterministically: first row matching each
+FEW_SHOT_SPEC kind. Pre-register the pool + this policy before running.
+Every run logs params + metrics to MLflow (MLFLOW_TRACKING_URI).
 
-CLI: uv run python -m tinyllm.baselines --mode zero-270m --data data/generated/test_gate.jsonl
-     modes: zero-270m | few-270m | few-big
+CLI: uv run python -m tinyllm.baselines --mode few-local \
+        --local-model Qwen/Qwen3.5-0.8B --local-revision <sha> \
+        --data data/generated/test_gate_v2.jsonl
+     modes: zero-local | few-local | few-big
 """
 
 import argparse
@@ -21,7 +28,6 @@ import json
 
 from tinyllm.eval import evaluate
 
-LOCAL_MODEL_ID = "google/gemma-3-270m-it"
 BIG_MODEL_ID = "gemma-4-26b-a4b-it"  # via Gemini API; NOT the test-set teacher family
 
 PROMPT = """Parse this bank SMS into JSON with fields: is_transaction, txn_type, amount,
@@ -30,7 +36,7 @@ Respond with ONLY the JSON.
 {examples}SMS: {sms}
 JSON:"""
 
-# Few-shot examples are drawn deterministically from train.jsonl (never the
+# Few-shot examples are drawn deterministically from the train pool (never the
 # eval set): a UPI debit, a salary credit, an OTP negative, and a scam — the
 # four behaviors the schema most needs demonstrated.
 FEW_SHOT_SPEC = [
@@ -41,7 +47,7 @@ FEW_SHOT_SPEC = [
 ]
 
 
-def few_shot_block(train_path: str = "data/generated/train.jsonl") -> str:
+def few_shot_block(train_path: str) -> str:
     rows = [json.loads(line) for line in open(train_path)]
     picked = []
     for kind, channel in FEW_SHOT_SPEC:
@@ -85,16 +91,19 @@ def extract_json(text: str) -> str:
     return text[start:].strip()
 
 
-def predict_local(sms_list: list[str], examples: str) -> list[str]:
+def predict_local(
+    sms_list: list[str], examples: str, model_id: str, revision: str | None = None
+) -> list[str]:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tok = AutoTokenizer.from_pretrained(LOCAL_MODEL_ID)
+    tok = AutoTokenizer.from_pretrained(model_id, revision=revision)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # float32, NOT float16: Gemma's activations overflow fp16 (all-pad output,
-    # NaN logits) and pre-Ampere GPUs lack bf16. 270M in fp32 is ~1.1GB — fine.
+    # float32, NOT float16: Gemma's activations overflow fp16 and pre-Ampere
+    # GPUs lack bf16. 270M ≈ 1.1 GB, 0.8B ≈ 3.2 GB (fits a 4 GB card, barely),
+    # 2B ≈ 8 GB → Colab T4 only.
     model = AutoModelForCausalLM.from_pretrained(
-        LOCAL_MODEL_ID, dtype=torch.float32
+        model_id, revision=revision, dtype=torch.float32
     ).to(device)
     outs = []
     for i, sms in enumerate(sms_list):
@@ -135,12 +144,19 @@ def main():
 
     load_dotenv()
     parser = argparse.ArgumentParser(
-        description="Run a 2.5 baseline on a labeled JSONL file."
+        description="Run a ladder baseline on a labeled JSONL file."
     )
     parser.add_argument(
-        "--mode", required=True, choices=["zero-270m", "few-270m", "few-big"]
+        "--mode", required=True, choices=["zero-local", "few-local", "few-big"]
     )
-    parser.add_argument("--data", default="data/generated/test_gate.jsonl")
+    parser.add_argument("--local-model", default="google/gemma-3-270m-it")
+    parser.add_argument("--local-revision", default=None)
+    parser.add_argument(
+        "--train-pool",
+        default="data/generated/train_v4.jsonl",
+        help="few-shot exemplar source (era-2 pool, not the stale v1 default)",
+    )
+    parser.add_argument("--data", default="data/generated/test_gate_v2.jsonl")
     parser.add_argument(
         "--limit", type=int, default=None, help="first N rows (smoke tests)"
     )
@@ -148,24 +164,27 @@ def main():
 
     rows = [json.loads(line) for line in open(args.data)][: args.limit]
     sms_list = [r["sms"] for r in rows]
-    examples = "" if args.mode == "zero-270m" else few_shot_block()
-    model_id = BIG_MODEL_ID if args.mode == "few-big" else LOCAL_MODEL_ID
-    predict = predict_api if args.mode == "few-big" else predict_local
-
-    preds = predict(sms_list, examples)
+    examples = "" if args.mode == "zero-local" else few_shot_block(args.train_pool)
+    model_id = BIG_MODEL_ID if args.mode == "few-big" else args.local_model
+    if args.mode == "few-big":
+        preds = predict_api(sms_list, examples)
+    else:
+        preds = predict_local(sms_list, examples, args.local_model, args.local_revision)
     report = evaluate(preds, [r["label"] for r in rows])
 
     import mlflow
 
     mlflow.set_experiment("baselines")
-    with mlflow.start_run(run_name=args.mode):
+    with mlflow.start_run(run_name=f"{args.mode}-{model_id.split('/')[-1]}"):
         mlflow.log_params(
             {
                 "mode": args.mode,
                 "model": model_id,
+                "revision": args.local_revision,
+                "train_pool": args.train_pool if args.mode != "zero-local" else None,
                 "data": args.data,
                 "n": len(rows),
-                "few_shot": args.mode != "zero-270m",
+                "few_shot": args.mode != "zero-local",
             }
         )
         for k, v in report.items():
@@ -173,7 +192,7 @@ def main():
                 mlflow.log_metrics({f"field_acc_{f}": acc for f, acc in v.items()})
             else:
                 mlflow.log_metric(k, v)
-    print(f"== {args.mode} on {args.data} ({len(rows)} rows)")
+    print(f"== {args.mode} ({model_id}) on {args.data} ({len(rows)} rows)")
     print(json.dumps(report, indent=2))
 
 

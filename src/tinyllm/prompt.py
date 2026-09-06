@@ -23,3 +23,18 @@ def format_example(ex: dict) -> dict:
     return {
         "text": build_prompt(ex["sms"]) + json.dumps(ex["label"], ensure_ascii=False)
     }
+
+
+def chat_prompt(tok, sms: str) -> str:
+    """Chat-template the SAME task text used since era 1 (single source of truth).
+
+    add_generation_prompt=True appends the assistant header INCLUDING Qwen3.5's
+    empty <think></think> block — completions start after it. Never hand-write
+    ChatML markers; the tokenizer owns its own scaffolding. Train (train.py),
+    eval (model_eval.py --chat) and serving must all call this — byte-identical
+    prompts or the number measures skew, not the model."""
+    return tok.apply_chat_template(
+        [{"role": "user", "content": build_prompt(sms).rstrip()}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )

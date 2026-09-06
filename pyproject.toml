@@ -4,25 +4,65 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
+
+# Core: schema, config, prompt, eval, regex baseline. Light enough that Colab
+# has most of it preinstalled, so `pip install -e .[train]` on a fresh VM only
+# pays for the training stack.
 dependencies = [
-    "azure-ai-ml>=1.34.1",
-    "azure-identity>=1.25.3",
-    "azure-storage-blob>=12.27.1",
-    "azureml-mlflow>=1.62.0.post5",
-    "bitsandbytes>=0.49.2",
-    "datasets>=5.0.0",
-    "datasketch>=2.0.0",
-    "google-genai>=2.14.0",
     "httpx>=0.28.1",
-    "mlflow>=3.13.0",
-    "peft>=0.19.1",
+    "numpy>=1.26",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.14.2",
+    "python-dotenv>=1.0",
     "pyyaml>=6.0.3",
     "scikit-learn>=1.9.0",
+]
+
+[project.optional-dependencies]
+# Training + model eval: tinyllm.train, tinyllm.model_eval, tinyllm.baselines.
+# torch is deliberately loose-bounded so Colab's preinstalled CUDA build
+# satisfies it instead of being downloaded again.
+train = [
+    "accelerate>=1.14.0",
+    "bitsandbytes>=0.49.2",
+    "datasets>=5.0.0",
+    "mlflow>=3.13.0",
+    "peft>=0.19.1",
+    "torch>=2.4",
     "transformers>=5.14.1",
     "trl>=1.9.0",
+]
+# Synthetic data generation: tinyllm.data_gen, scenario_gen, test_gen.
+gen = [
+    "datasketch>=2.0.0",
+    "google-genai>=2.14.0",
+]
+# Blob only: tinyllm.manifest.fetch_dataset. `data/` is gitignored, so any
+# fresh machine (Colab included) needs this to pull the hash-verified dataset.
+blob = [
+    "azure-storage-blob>=12.27.1",
+]
+# Hosted MLflow. MLFLOW_TRACKING_URI is an azureml:// URI, so any machine that
+# runs train.py needs this plugin or the run logs to a throwaway local ./mlruns.
+tracking = [
+    "azureml-mlflow>=1.62.0.post5",
+]
+# Full Azure ML: manifest publish, workspace management.
+azure = [
+    "azure-ai-ml>=1.34.1",
+    "azure-identity>=1.25.3",
+    "tinyllm-ops[blob,tracking]",
+]
+# What a Colab T4 VM needs and nothing more.
+colab = [
+    "tinyllm-ops[train,blob,tracking]",
+]
+# Orchestration, Stage 3. Nothing imports zenml yet.
+pipelines = [
     "zenml>=0.96.2",
+]
+all = [
+    "tinyllm-ops[train,gen,azure,blob,tracking,pipelines]",
 ]
 
 [build-system]
@@ -32,10 +72,18 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/tinyllm"]
 
+[tool.uv]
+# Local `uv sync` keeps installing everything (via the `local` group below);
+# only Colab picks a subset.
+default-groups = ["dev", "local"]
+
 [tool.pytest.ini_options]
 pythonpath = [".", "src"]
 
 [dependency-groups]
+local = [
+    "tinyllm-ops[all]",
+]
 dev = [
     "kaggle>=2.2.4",
     "pre-commit>=4.6.1",

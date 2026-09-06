@@ -52,7 +52,7 @@ teacher, with a frozen final set touched exactly once for the headline number:
 | Gemma 4 26B few-shot (~13× bigger) | X% | API $$ |
 
 ¹ Strict metric: output must parse AND validate against the schema with *every* field
-exactly right, on ~154 hand-reviewed messages. X% placeholders fill in as each stage
+exactly right, on ~300 hand-reviewed messages. X% placeholders fill in as each stage
 lands; all runs logged in MLflow — details in [docs/decisions.md](docs/decisions.md).
 The multi-size ladder also answers a question most fine-tuning projects skip:
 **how much model does this task actually need?**
@@ -138,8 +138,8 @@ comfortably). The only real-money item is optional GPU retraining on RunPod
 
 ```bash
 git clone <repo> && cd tinyllm-ops
-uv sync
-python run_pipeline.py --config configs/smoke.yaml   # 50-example CPU smoke run (0.8B)
+uv sync          # everything; Colab uses `pip install -e ".[colab]"` instead
+python run_pipeline.py --config configs/smoke.yaml   # 50-example CPU smoke run (0.8B; entrypoint lands in Stage 3)
 ```
 
 Live demo: `<endpoint URL>` (first request after idle may take ~20 s — scale-to-zero cold
