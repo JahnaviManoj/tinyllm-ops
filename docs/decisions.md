@@ -528,3 +528,40 @@ BEFORE any Era-2 training or baseline run:
    the gate_v2 dedupe pool lists train_v1, val_v1, val_v2, train_v3 and all
    candidate files explicitly. Corpus-sourced (UK) rows are exempt from sender-ID
    augmentation via a source field.
+
+## 2026-09-06 — R0.4 done: Colab path proven end-to-end (L4); gen_smoke verdict = fp16 viable
+
+**Smoke run.** `configs/exp_100_smoke.yaml` (Qwen3.5-0.8B, 20 steps, 50 rows) completed
+on a Colab L4 through the full path: clone → manifest fetch (hash-verified) → QLoRA →
+adapter saved + logged → fp32 re-merge. Run `afe1e1e8` (name `exp_100_smoke.yaml`) in `tinyllm-finetune`;
+the `git_commit` param is the receipt for which code ran. A FAILED twin `3285025e` is the
+torchao merge-step crash (adapter logged, merge died) — kept as evidence, never a result. Not a result; never in a table.
+
+**gen_smoke verdict (Part B cell 4).** Qwen3.5-2B @ 15852e8c, NF4 + fp16, NVIDIA L4:
+5/5 generations coherent — well-formed JSON in the model's own schema (```json fences,
+its own keys, amounts as floats). No NaN / empty / repeating output. **fp16 is viable
+for this model.** Decision: L4/A100 sessions use `compute_dtype: auto` (→ native bf16,
+no GradScaler workaround); T4 sessions use `fp16`. fp16 numerics are GPU-independent so
+the verdict should transfer, but the pre-registered rule is "verify on the GPU you train
+on" — re-run cell 4 (~2 min) if a T4 session ever happens.
+
+What the untuned output shows training must override (useful for reading Stage-2
+failures later): markdown fences, free-form keys, float amounts. Our schema wants bare
+JSON with `is_transaction`, `txn_type`, `amount` as a decimal *string*, `counterparty`,
+`category`, `is_suspected_scam`.
+
+**Traps closed this session (all now enforced by notebook cell 1):**
+- Nothing from Era 2 had been pushed; Colab cloned `f481ade` (no `scripts/`, no
+  `[colab]` extra, duplicate `compute_dtype` MLflow param) — Trap 9 in practice. Cell 1
+  now refuses to continue if the Era-2 files are missing from the clone.
+- `AZURE_CLIENT_SECRET` pasted 36/40 chars (the value ends in a period — easy to lose).
+  Cell 1 now acquires a real token with `ClientSecretCredential` before anything is spent,
+  and the MLflow smoke runs in a subprocess so a bad credential is never cached in-kernel.
+- Colab preinstalls `torchao 0.10`; peft ≥ 0.20's availability check *raises* on < 0.16,
+  hit only at the merge step (the bnb dispatcher wins during training). Training and the
+  adapter upload succeed, then the merge dies. torchao is not in `uv.lock`; cell 1
+  uninstalls it. If this ever recurs, the adapter is already safe in MLflow.
+- `HF_TOKEN` secret unset → "unauthenticated requests" warning only; 4.55 GB at ~300 MB/s.
+
+**Next:** Part C (Stage 1 data), local, no GPU. C1 (rulebook commit) first — before any
+gate_v2 row exists. The notebook idles until train_v4 / val_v3 / test_gate_v2 are published.
