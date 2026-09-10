@@ -1,0 +1,9 @@
+{
+  "name": "ood",
+  "version": "v1",
+  "sha256": "78432f2b5438503de11a4707ca991a90ff3807ecd1438d29442bdc33254f3d41",
+  "num_examples": 25,
+  "blob_path": "datasets/78432f2b5438503de11a4707ca991a90ff3807ecd1438d29442bdc33254f3d41/ood.jsonl",
+  "generator_config": null,
+  "seed": null
+}

@@ -1,0 +1,9 @@
+{
+  "name": "scam_holdout",
+  "version": "v1",
+  "sha256": "6c4cc6cf0683054d17c1926b8ce692412458ecfa2aeea56204332a02089c029a",
+  "num_examples": 60,
+  "blob_path": "datasets/6c4cc6cf0683054d17c1926b8ce692412458ecfa2aeea56204332a02089c029a/scam_holdout.jsonl",
+  "generator_config": null,
+  "seed": 1006
+}

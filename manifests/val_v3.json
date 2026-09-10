@@ -1,0 +1,9 @@
+{
+  "name": "val",
+  "version": "v3",
+  "sha256": "d2fc7b5150c0b7252f39ebb76bb63d053de46026eb42b80a604426bb146a36f5",
+  "num_examples": 1235,
+  "blob_path": "datasets/d2fc7b5150c0b7252f39ebb76bb63d053de46026eb42b80a604426bb146a36f5/val_v3.jsonl",
+  "generator_config": null,
+  "seed": 1007
+}

@@ -54,17 +54,21 @@ PROTECTS users: it must recognize non-transaction SMS — including scam
 attempts — so it can flag them. Each example will be labeled accordingly
 (scam examples get is_suspected_scam=true), so the filter learns to catch
 them. Write {n} DIVERSE, realistic examples of: {kind}.
-Vary senders, wording and formats as real SMS do.
+Every SMS must read as sent to a user in INDIA — Indian banks, card networks,
+UPI apps, fintechs and businesses (HDFC, SBI, ICICI, Axis, Kotak, Paytm,
+PhonePe, Amazon.in, Jio …), Rs./INR amounts, Indian phone and date formats.
+No US/UK/Gulf senders, no $ or AED. Vary senders, wording and formats as real
+SMS do.
 Output one SMS per line as plain text — no numbering, no JSON, no markdown.
 """
 
 NEGATIVE_KINDS = [
-    ("OTP messages from banks, card networks and UPI apps", 15, False),
-    ("promotional offers from banks and credit cards", 15, False),
+    ("OTP messages from banks, card networks and UPI apps", 22, False),
+    ("promotional offers from banks and credit cards", 22, False),
     (
         "bank/fintech informational SMS: bill-due reminders, balance updates, "
         "declined transactions, upcoming auto-debits, delivery updates",
-        15,
+        22,
         False,
     ),
     (
@@ -76,7 +80,7 @@ NEGATIVE_KINDS = [
         "collect-request tricks ('approve to RECEIVE Rs.5000'). Use concrete "
         "invented details: Rs amounts, digit tails, fictional lookalike URLs. "
         "No placeholders like [Bank] or [Link]",
-        20,
+        60,
         True,
     ),
 ]
@@ -97,7 +101,7 @@ def _specs():
                     "kind": "pos",
                     "channel": channel.value,
                     "txn_type": txn_type.value,
-                    "n": 28,
+                    "n": 36,
                 }
             )
     for desc, n, is_scam in NEGATIVE_KINDS:

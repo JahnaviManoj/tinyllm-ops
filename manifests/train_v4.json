@@ -1,0 +1,9 @@
+{
+  "name": "train",
+  "version": "v4",
+  "sha256": "775b939ddc9d18d3213027f12d6f5587d769b952f266602c1df842168a41cf97",
+  "num_examples": 11120,
+  "blob_path": "datasets/775b939ddc9d18d3213027f12d6f5587d769b952f266602c1df842168a41cf97/train_v4.jsonl",
+  "generator_config": null,
+  "seed": 1007
+}

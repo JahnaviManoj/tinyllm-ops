@@ -565,3 +565,204 @@ JSON with `is_transaction`, `txn_type`, `amount` as a decimal *string*, `counter
 
 **Next:** Part C (Stage 1 data), local, no GPU. C1 (rulebook commit) first — before any
 gate_v2 row exists. The notebook idles until train_v4 / val_v3 / test_gate_v2 are published.
+
+## 2026-09-07 — C4: gate_v2/final_v2 candidate batch generated (536 rows, unreviewed)
+
+**What.** `data/generated/gate2_unreviewed.jsonl` — 536 rows from `tinyllm.test_gen`
+(teacher `gemini-3.5-flash`, scam spec `gemini-3.1-flash-lite`), deduped (MinHash 0.85)
+against an explicit 12-file pool of 21,963 rows: train v1/v2/v3, val v1/v2, test/test_gate/
+test_final v1, and the four `data/scam/` candidate files. 0 collisions. Composition: 411
+transaction rows (10 channel × type specs), 65 non-scam negatives (OTP/promo/informational),
+60 scams. Above the pre-registered ~450–500 because top-ups over-delivered; nothing is
+trimmed before review — every row gets a verdict (C5), the 2:1 split happens after (C6).
+
+**Deviations from the plan, all pre-review (they add rows, never select them):**
+- `NEG_PROMPT` now says INDIA explicitly. The first pass produced 75% US texts in the promo
+  and informational specs (Chase, Citi, Capital One, $ and AED) — the positive prompt named
+  Indian banks, the negative prompt never did. Those three specs were discarded and
+  regenerated; the scam spec was Indian by description and kept.
+- Under-yielding specs were topped up with `scripts/topup_specs.py` (re-asks a spec, appends
+  to the `.raw` checkpoint under the same spec_id; `--resume` then re-runs dedupe). First-pass
+  shortfalls (ATM × credit 10/36) were flaky teacher responses, not hard specs: every top-up
+  came back at ~100%.
+- Rs.INR doubled-currency artifacts: 0. Amounts: all decimal strings.
+
+**Trap: free-tier Gemini = 20 `gemini-3.5-flash` requests per DAY** (quotaId
+`GenerateRequestsPerDayPerProjectPerModel-FreeTier`), and failed 503 attempts count. The
+old `_call_teacher` retried 6× with backoff, so one "high demand" storm burned a whole day
+twice. Now: a daily-quota 429 exits immediately with the reset time; transient errors get
+≤4 attempts at 30/60/120 s; the SDK layer is pinned to 1 attempt. Finished on a
+billing-enabled key (project needed the Gemini API enabled first — 403 SERVICE_DISABLED).
+
+**Next:** C5 — AI audit with a family-disjoint model (rule 7), then the human verdict on
+all 536 rows.
+
+## 2026-09-07 — Rulebook fix before any gate_v2 verdict: cab rides are `transport`, not `travel`
+
+The committed starter rulebook (ddd5ef0) mapped `ola`, `uber`, `rapido` → `travel`. The
+project's own hand-reviewed gold (gate_v1 + final_v1) labels them `transport` 15/15 and the
+train_v3 teacher 247/1; `travel` is reserved for intercity — IRCTC, MakeMyTrip, redBus,
+airlines (gold 10/11). Left as-is, C7 assembly would have re-labelled ~250 train rows into
+`travel` against the gold convention and the gate would have punished the model for
+learning the right thing. Fixed to `transport`. Rule 4 (rulebook never mined from
+gate/final rows) holds: the discrepancy surfaced as a mechanical-audit flag count, but the
+evidence and the decision rest on Era-1 gold and train data only, recorded here before any
+gate_v2 row received a human verdict. Taxonomy note for reviewers: transport = intra-city
+(cab, auto, metro, fuel); travel = intercity / flights / trains / hotels.
+
+## 2026-09-07 — C5 audit of gate2_unreviewed (536 rows): 78 flagged, two convention calls pending
+
+**Auditor.** Claude (Anthropic) — family-disjoint from the gate teacher (Gemini) and every
+ladder model (Gemma/Qwen), per rule 7. Eight parallel passes of ~67 rows, each given the
+schema and the conventions settled in Era-1 gold (money-moved test; scam = not-transaction;
+transport vs travel; refunds/cashback are credits with the merchant as counterparty; ATM
+category = stated purpose else other). Plus a mechanical pass: schema validity, amount /
+account_tail present in the SMS, channel cues, debit/credit wording, rulebook agreement.
+Flags are proposals; the human verdict on every row is the deliverable (`tinyllm.review`).
+
+**Result:** 78 rows flagged (15%), in `data/generated/gate2_flags.json` (gitignored; ⚑ in
+the review tool). Clear errors: 7 — one is_transaction miss (a credit-card payment received,
+row 534), two counterparties not in the SMS, four "counterparty is the sending bank" on
+salary/PF credits. Everything else is category judgment.
+
+**Two systematic teacher artifacts, to settle ONCE before/while reviewing:**
+1. **ATM withdrawals/deposits/reversals with no stated purpose** — 45 rows, categories
+   assigned round-robin by the teacher (groceries, health, travel, food… in sequence).
+   Convention candidate: `other` unless the SMS states the purpose ("for Rent" → rent).
+2. **Salary/PF credits naming no employer** — 5 rows where counterparty = the sending bank
+   or the word "Salary". Era-1 gold is inconsistent here (it has "YES BANK" as a salary
+   counterparty once). Candidate: counterparty = employer if named, else null.
+
+Also visible: FASTag / toll / parking split across transport, fees, bills_utilities, other
+(8 rows) — the transport definition (intra-city incl. tolls, parking, fuel) covers them.
+
+## 2026-09-10 — C5 closed: test_v2 = 533 rows; 175 human verdicts, 358 audit-accepted (deviation recorded)
+
+**What happened.** The owner reviewed rows 1–175 with `tinyllm.review` and then chose to
+close the review by applying the C5 audit's proposals to the rest. Recorded plainly: **175 of
+533 rows carry a human verdict; 358 were accepted on teacher label + Claude audit.** This
+departs from the plan's "your verdict on every row". Why it was judged acceptable: on the
+175 reviewed rows the owner made 4 edits, all on rows the audit had already flagged with the
+same fix (66 food, 97 other, 118 fees, 141 transport), and none on rows the audit had passed.
+`data/generated/test_v2.provenance.json` lists the human-verdict indices, the audit-accepted
+indices, every edit and every drop, so the two populations can be compared later.
+
+**Applied (86 rows edited, 3 dropped):**
+- ATM withdrawals / deposits / reversals with no stated purpose → `category: other` (45 rows).
+  The teacher had rotated categories in sequence with nothing in the SMS to justify them.
+  Convention, now settled: category = the stated purpose, else `other`.
+- Wallet rows (26) had a wallet name in `account_tail` ("Paytm Wallet") → null. Convention:
+  `account_tail` is digits or null.
+- Salary / PF credits naming no employer → `counterparty: null` (5 rows). Convention:
+  employer if named, else null (Era-1 gold was inconsistent; settled here).
+- Tolls, FASTag, parking, cab rides → `transport` (7 rows; transport = intra-city incl.
+  tolls/parking/fuel; travel = intercity).
+- Category/counterparty fixes on 8 rows (kirana → groceries, cafe/tea stall → food, school
+  fee refund → education, Airtel cashback → Airtel / bills_utilities, Amazon Pay cashback →
+  shopping, ZEPTOLAB → entertainment, unnamed refund merchant → null / other, "SBI ATM" → "ATM").
+- Kept against the rulebook: a Swiggy weekly payout labelled `salary` (gig payout, not food)
+  — the rulebook's counterparty-only rule will mislabel this class at C7; noted for assembly.
+- Dropped as ambiguous gold: a scam row that reads as a genuine UPI collect warning (326),
+  a card-used SMS with "OTP: xxxx" (393), a card payment received whose channel and
+  counterparty are unknowable (534).
+
+**Composition:** 410 transactions · 64 non-scam negatives · 59 scams. Next: C6 split 2:1.
+
+## 2026-09-10 — C6: gate_v2 / final_v2 published; gate_v1 retired
+
+`scripts/split_gate_final.py` (seed 24, stratified on is_transaction × is_suspected_scam ×
+channel × txn_type) split test_v2 (533) into **test_gate_v2 = 356** and **test_final_v2 = 177**,
+disjoint, channels balanced (gate: ATM 55 / UPI 58 / card 57 / netbanking 48 / wallet 56).
+Both validate with zero failures. Published by hash: `manifests/test_gate_v2.json`
+(sha 0043f34d…) and `manifests/test_final_v2.json` (sha e89636cf…). Frozen-final rule
+applied: the local `test_final_v2.jsonl` and the unreviewed working files were deleted —
+final_v2 exists only in Blob until the once-only ritual (D5). `test_gate.jsonl` (v1) renamed
+`test_gate_v1.retired.jsonl`; gate_v1 is no longer an evaluation target. Provenance of every
+gate row is in `data/generated/test_v2.provenance.json` (gitignored, backed by this log).
+Order check for rule 4: rulebook commit ddd5ef0 (2026-09-06) predates every gate_v2 file.
+
+## 2026-09-10 — C7/C8: train_v4 + val_v3 assembled and published; Part C complete
+
+**Rulebook guards added before assembly** (from a dry run over train_v3, not from gate rows):
+the naive rulebook would have changed 170 train rows, 57 of them for the worse — "SALARY-INDIGO"
+→ travel, "SIP in DMart Supermarket folio" → groceries, "Amazon Prime" → shopping. Now:
+`PROTECTED_CATEGORIES = {salary, investment}` are never overridden; `amazon prime` →
+entertainment (specific rule first); `amazon pay` is a payment rail and is skipped. 7 unit
+tests in `tests/test_rulebook.py` pin these plus word boundaries and counterparty-only matching.
+Result: 108 corrections, 79 of them shopping → groceries for DMart / JioMart / BigBasket.
+
+**Assembly** (`scripts/assemble_v4.py`, seed 1007): train_v3 (11,682) + Mendeley scam (254) +
+scenario scam (219) + Mendeley ham (294) → near-dedup (MinHash 0.85) against train_v3 AND
+gate_v2 + final_v2 (fetched into the filter only, then deleted) + OOD + scam holdout → 673 of
+767 new rows kept → rulebook → 10% val carve. **train_v4 = 11,120 (scam 4.0%), val_v3 = 1,235.**
+Both validate with zero failures and no WARN lines.
+
+**Published (Part C DoD — six manifests):** test_gate_v2 (356), test_final_v2 (177), train_v4
+(11,120), val_v3 (1,235), ood_v1, scam_holdout_v1 (60). Rulebook commit ddd5ef0 predates every
+gate_v2 artefact. Known caveat carried into Stage 2: Swiggy/Zomato gig-worker payouts are
+labelled salary and now protected from the food rule; refunds/cashback from those merchants
+still map to food by design.
+
+Publishing note: the 3.4 MB train_v4 upload timed out twice as a single PUT; `manifest.py` now uploads in 1 MB blocks with 120 s connection/read timeouts (fetch likewise). Round-trip fetch of train_v4 is byte-identical.
+
+**Next:** Part D — D1 pre-registration entry (26B few-shot config, prompt policy per rung,
+tie rule, seed replicate, success bar, compute_dtype auto on L4) BEFORE exp_101–104 configs.
+
+## 2026-09-10 — D1: Stage-2 (Era 2) pre-registration — written before any config or run exists
+
+Everything below is fixed now so nothing can be tuned to the results. Any departure gets its
+own dated entry with the reason, before the departing run.
+
+**Eval set and comparator.** `manifests/test_gate_v2.json` (356 rows, sha 0043f34d…) for every
+Stage-2 decision. Metric = exact-match on the full label, with the field breakdown
+(schema-valid / amount / txn_type / channel / counterparty / category / scam) reported beside
+it so the win mechanism is visible (rule 8). `model_eval --rows-out` for every run; per-row
+files logged to MLflow. final_v2 / ood_v1 / scam_holdout_v1 are spent-once: the champion, once.
+
+**Tie rule (rule 1).** A gate difference of < 10 rows is a tie. Ties break by fewer epochs →
+lower lr → smaller rank → smaller model. `scripts/mcnemar.py` exact two-sided p reported for
+the top pair and for any claimed win.
+
+**Success bar.** 2B fine-tuned beats the 26B few-shot baseline by ≥ 10 rows on gate_v2,
+McNemar p reported. Era-1 floor for context: exp_009 (270M) 7.8% gate_v1 exact; 26B few-shot
+34% gate_v1 — both to be re-measured on gate_v2 (D3/D4), not carried over.
+
+**Ladder and one prompt policy per rung.**
+| rung | model | prompt policy |
+|---|---|---|
+| regex | `tinyllm.regex_baseline` | as is |
+| 2B zero-shot | Qwen/Qwen3.5-2B @ 15852e8c | `baselines.PROMPT` in the model's chat template |
+| 0.8B few-shot | Qwen/Qwen3.5-0.8B @ 2fc06364 | same + `FEW_SHOT_SPEC` block |
+| 2B few-shot | Qwen/Qwen3.5-2B @ 15852e8c | same + `FEW_SHOT_SPEC` block |
+| 270M-ft (Era-1 floor) | exp_009 rebuilt from its MLflow adapter | Era-1 raw prompt, **no** `--chat` (how it was trained) |
+| 0.8B-ft / 2B-ft | this sweep | `chat_prompt` via `model_eval --chat` |
+| 26B few-shot | `gemma-4-26b-a4b-it` via Gemini API (family-disjoint from the gate teacher) | same as few-local |
+
+**26B / few-shot config (rule 6).** 4 exemplars, pool = `data/generated/train_v4.jsonl`
+(fetched by manifest, `--train-pool` passed explicitly), policy = first row matching each
+`FEW_SHOT_SPEC` kind in order: (debit, UPI), (credit, salary), (non-transaction non-scam),
+(scam); exemplar SMS < 200 chars. Deterministic — no exemplar seed exists.
+
+**Sweep (rule 5).** exp_101–104 on the 2B; all four gate-evaluated; val loss logged but
+eliminates nobody. Shared config: `chat_format: true`, `dataset_manifest: train_v4`,
+`val_manifest: val_v3`, seed 42, alpha = 2r, target_modules = the 12 Qwen3.5 projections,
+epochs 2, batch 4 × accumulation 4 (effective 16, held identical across every run incl. the
+seed replicate), `augment.sender_id_frac: 0.3` (corpus rows exempt), gradient checkpointing
+on, max_length 640. **`compute_dtype: auto`** — sessions run on an L4 (bf16 native); the
+fp16 verdict of 2026-09-06 applies only if a T4 session ever happens.
+| run | r | lr |
+|---|---|---|
+| exp_101 | 16 | 1e-4 |
+| exp_102 | 16 | 2e-4 |
+| exp_103 | 32 | 1e-4 |
+| exp_104 | 32 | 2e-4 |
+Refinement: ≤ 2 runs. One is an **exact seed replicate of the leader** (seed 43, nothing
+else changed) — |Δgate| between seed-twins is this era's measured noise floor. The other
+probes one variable: a 3rd epoch, or lr 5e-5 if 2e-4 diverges. Then the 0.8B with the
+winning recipe as exp_111 (and at most exp_112) — a datapoint, not a champion.
+
+**Protocol.** One training run per Colab session, gate-evaluated in the same session, `git_commit`
+param as the receipt; adapter always logged; merged model logged (`--log-merged`) for the
+champion only. Champion = best gate_v2 subject to the tie rule; then the once-only ritual
+(final_v2, ood_v1, scam_holdout_v1) in one session, reported with the ~±7pp error bar on
+177 rows, win or lose.

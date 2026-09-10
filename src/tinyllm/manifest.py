@@ -60,15 +60,23 @@ def publish(
     if not dry_run:
         from azure.storage.blob import BlobServiceClient
 
-        svc = BlobServiceClient.from_connection_string(_conn_str())
+        # Upload in 1 MB blocks with a generous per-block timeout: a ~4 MB train file
+        # sent as a single PUT hit "write operation timed out" (2026-09-10, train_v4).
+        svc = BlobServiceClient.from_connection_string(
+            _conn_str(),
+            max_single_put_size=1024 * 1024,
+            max_block_size=1024 * 1024,
+            connection_timeout=120,
+            read_timeout=120,
+        )
         try:
             svc.create_container(CONTAINER)
         except Exception:
             pass  # already exists
         blob = svc.get_blob_client(CONTAINER, manifest["blob_path"])
-        blob.upload_blob(
-            data, overwrite=True
-        )  # content-addressed: same bytes → same path
+        blob.upload_blob(  # content-addressed: same bytes → same path
+            data, overwrite=True, max_concurrency=1, timeout=600
+        )
     os.makedirs("manifests", exist_ok=True)
     out = f"manifests/{name}_{version}.json"
     with open(out, "w") as f:
@@ -86,7 +94,11 @@ def fetch_dataset(manifest_path: str, out_path: str):
 
     manifest = json.load(open(manifest_path))
     blob = BlobClient.from_connection_string(
-        _conn_str(), CONTAINER, manifest["blob_path"]
+        _conn_str(),
+        CONTAINER,
+        manifest["blob_path"],
+        connection_timeout=120,
+        read_timeout=120,
     )
     data = blob.download_blob().readall()
     actual = hashlib.sha256(data).hexdigest()

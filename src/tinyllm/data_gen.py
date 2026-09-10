@@ -8,6 +8,7 @@ import time
 import httpx
 from google import genai
 from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 from tinyllm.schema import ExpenseRecord, Category, TxnType
 from tinyllm.templates import Template, TEMPLATES
 from datasketch import MinHash, MinHashLSH
@@ -27,7 +28,14 @@ _client = None
 def get_client():
     global _client
     if _client is None:
-        _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+        # One attempt at the SDK layer: retries live in _call_teacher only, so the two
+        # layers can never multiply (free-tier DAILY quota counts failed attempts too).
+        _client = genai.Client(
+            api_key=os.environ["GEMINI_API_KEY"],
+            http_options=genai_types.HttpOptions(
+                retry_options=genai_types.HttpRetryOptions(attempts=1)
+            ),
+        )
     return _client
 
 
@@ -151,16 +159,31 @@ STYLES = [
 ]
 
 
-def _call_teacher(prompt: str, retries: int = 6, model: str = TEACHER_MODEL) -> str:
-    """One generate_content call with backoff on transient failures:
-    429s (free-tier rate limits), 5xx, and network drops (httpx.TransportError
-    covers RemoteProtocolError/ConnectError/timeouts — a long generation run
-    must survive a single dropped connection)."""
+def _call_teacher(prompt: str, retries: int = 4, model: str = TEACHER_MODEL) -> str:
+    """One generate_content call with backoff on transient failures: per-minute
+    429s, 5xx, and network drops (httpx.TransportError covers RemoteProtocolError/
+    ConnectError/timeouts — a long generation run must survive a dropped connection).
+
+    Two rules learned on gate_v2 (2026-09-07), where the free tier allows only
+    20 gemini-3.5-flash requests per DAY and every failed attempt counts:
+      - a daily-quota 429 (quotaId ...PerDay...) raises at once — retrying cannot
+        help and the old 6-step backoff burned minutes for nothing;
+      - transient errors get at most `retries` attempts with 30 s → 60 s → 120 s
+        waits, so one 503 storm costs a few requests, not the whole day."""
     for attempt in range(retries):
         try:
             resp = get_client().models.generate_content(model=model, contents=prompt)
             return resp.text or ""
         except (genai_errors.APIError, httpx.TransportError) as e:
+            if (
+                isinstance(e, genai_errors.APIError)
+                and e.code == 429
+                and "PerDay" in str(e)
+            ):
+                raise SystemExit(
+                    f"DAILY free-tier quota exhausted for {model} — resets 00:00 "
+                    "America/Los_Angeles. Re-run with --resume tomorrow."
+                ) from e
             transient = isinstance(e, httpx.TransportError) or e.code in (
                 429,
                 500,
@@ -169,7 +192,7 @@ def _call_teacher(prompt: str, retries: int = 6, model: str = TEACHER_MODEL) -> 
                 504,
             )
             if transient and attempt < retries - 1:
-                time.sleep(min(5 * 2**attempt, 120))
+                time.sleep(min(30 * 2**attempt, 120))
                 continue
             raise
     return ""
