@@ -1,0 +1,25 @@
+# exp_111 — the 0.8B on the champion-candidate recipe (exp_101: r=16, lr=1e-4, 2 epochs,
+# seed 42). Only model_id / model_revision differ. Pre-registered as a datapoint; whether
+# the tie-break's 'smaller model' clause can make it champion is the owner's call,
+# recorded in decisions.md BEFORE this run (2026-09-12).
+model_id: Qwen/Qwen3.5-0.8B
+model_revision: 2fc06364715b967f1860aea9cf38778875588b17
+chat_format: true
+dataset_manifest: manifests/train_v4.json
+val_manifest: manifests/val_v3.json          # val loss logged; eliminates nobody (rule 5)
+seed: 42
+lora:
+  r: 16
+  alpha: 32                                  # alpha = 2r across the sweep
+  target_modules: [q_proj, k_proj, v_proj, o_proj, in_proj_qkv, in_proj_z,
+                   in_proj_a, in_proj_b, out_proj, gate_proj, up_proj, down_proj]
+train:
+  learning_rate: 1.0e-4
+  epochs: 2
+  batch_size: 4
+  gradient_accumulation: 4                   # effective batch 16 [KEPT]
+augment:
+  sender_id_frac: 0.3                        # gate SMS carry DLT prefixes; corpus rows exempt
+gradient_checkpointing: true
+max_length: 640
+compute_dtype: auto                          # L4/A100 → bf16; set fp16 only on a T4

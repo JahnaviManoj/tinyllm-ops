@@ -779,6 +779,7 @@ channel, account_tail) are reported in the MLflow run and were ≥ 95% on every 
 | exp_102 | 16 | 2e-4 | L4 (bf16) | 2.6 h | 64.3% | 229 | 98.9% | 87.9% | 76.1% | 0.85 / 1.00 |
 | exp_103 | 32 | 1e-4 | L4 (bf16) | 2.6 h | 63.5% | 226 | 98.6% | 86.0% | 76.7% | 0.84 / 0.97 |
 | exp_104 | 32 | 2e-4 | L4 (bf16) | 2.6 h | **69.9%** | **249** | 99.4% | 90.4% | 78.9% | 0.89 / 1.00 |
+| exp_105 (=104, seed 43) | 32 | 2e-4 | L4 (bf16) | 2.6 h | 65.2% | 232 | 99.7% | 89.6% | 78.1% | 0.80 / 1.00 |
 
 **exp_101 read.** Mechanics are essentially solved (is_transaction 99.2%, amount 99.2%,
 txn_type 98.3%, account_tail 98.0%, channel 95.5%). The loss is in the two judgment fields:
@@ -825,3 +826,35 @@ to exp_104 is the era's measured noise floor. Read rule, fixed before it runs: i
 the 18-row lead over exp_101 stands as real and exp_104 (or 105, whichever is higher — they are
 the same recipe) is the champion candidate; if |Δ| ≥ 10 the tie band is wider than assumed and
 the leader claim is downgraded to "within noise" pending refinement #2.
+
+## 2026-09-12 — The noise floor is 17 rows: exp_104's lead is a seed, the grid is flat
+
+**exp_105** (exp_104 with seed 43, nothing else changed): 232 rows vs its twin's 249.
+Paired McNemar on the seed twins: 104-only 23, 105-only 6, margin 17, p ≈ 0.002. And exp_105
+vs exp_101: margin 1, p = 1.0 — indistinguishable. So the same recipe, re-seeded, lands back
+on exp_101's number, and **seed noise alone produces a "significant" 17-row McNemar
+difference on this gate.** Two consequences, both following the read rule pre-registered on
+2026-09-11 before exp_105 ran:
+
+1. **exp_104's 18-row lead over exp_101 is downgraded to "within noise."** The five runs span
+   226–249, inside one seed-twin gap. r and lr do not matter at this data/model size. The
+   < 10-row tie threshold from the 2026-09-03 pre-registration was too tight for a 356-row
+   gate; the measured floor is 17 rows (4.8 pp). McNemar p-values are reported but cannot be
+   read as recipe effects when a seed re-roll clears p = 0.002 on its own.
+2. **Champion candidate by the pre-registered tie-break** (fewer epochs → lower lr → smaller
+   rank → smaller model): all five at 2 epochs → lr 1e-4 (101, 103) → r 16 → **exp_101**.
+   The simplest recipe, the smallest adapter (515 MB), gate 64.9% / 231 rows.
+
+**What this means for the rest of Stage 2.**
+- The success bar ("2B-ft beats 26B few-shot by ≥ 10 rows on gate_v2") stands as written, but
+  every margin under 17 rows is reported as within noise. The bar is now effectively ≥ 17.
+- Refinement #2 (one-variable probe) cannot be read against a 17-row floor and is not run;
+  the budget goes to exp_111 (0.8B, the champion recipe) and the baselines.
+- **Decided 2026-09-12, before exp_111 runs: the tie-break stands as written.** If the 0.8B
+  (exp_111, exp_101's recipe, only the model swapped) lands within the 17-row noise floor of
+  exp_101, the "smaller model" clause makes the 0.8B the champion. The plan's "a datapoint,
+  not a champion" note is superseded. Rationale: if the gate cannot show the 2B is better,
+  the cheaper on-device model wins — that is the project's thesis, and the rule was written
+  before any number existed.
+- The ceiling is counterparty (76–79% on all five runs, every other field ≥ 86%) and it moved
+  with nothing. Post-mortem target: the counterparty label convention and string comparison.
