@@ -766,3 +766,62 @@ param as the receipt; adapter always logged; merged model logged (`--log-merged`
 champion only. Champion = best gate_v2 subject to the tie rule; then the once-only ritual
 (final_v2, ood_v1, scam_holdout_v1) in one session, reported with the ~±7pp error bar on
 177 rows, win or lose.
+
+## 2026-09-10 — Stage-2 sweep results on gate_v2 (356 rows; tie rule < 10 rows)
+
+Running table — one line per run as its gate eval lands. `rows` = exact-match rows, the unit
+the tie rule uses. Field columns are the judgment fields (rule 8); mechanics (amount, txn_type,
+channel, account_tail) are reported in the MLflow run and were ≥ 95% on every run so far.
+
+| run | r | lr | GPU | wall | exact | rows | parse | category | counterparty | scam P / R |
+|---|---|---|---|---|---|---|---|---|---|---|
+| exp_101 | 16 | 1e-4 | L4 (bf16) | ~2.5 h | **64.9%** | **231** | 99.7% | 87.1% | 77.8% | 0.84 / 0.97 |
+| exp_102 | 16 | 2e-4 | L4 (bf16) | 2.6 h | 64.3% | 229 | 98.9% | 87.9% | 76.1% | 0.85 / 1.00 |
+| exp_103 | 32 | 1e-4 | L4 (bf16) | 2.6 h | 63.5% | 226 | 98.6% | 86.0% | 76.7% | 0.84 / 0.97 |
+| exp_104 | 32 | 2e-4 | L4 (bf16) | 2.6 h | **69.9%** | **249** | 99.4% | 90.4% | 78.9% | 0.89 / 1.00 |
+
+**exp_101 read.** Mechanics are essentially solved (is_transaction 99.2%, amount 99.2%,
+txn_type 98.3%, account_tail 98.0%, channel 95.5%). The loss is in the two judgment fields:
+counterparty (77.8%) and category (87.1%); scam recall 97.4% with precision 0.84 (a handful
+of legitimate alerts flagged). Caveat carried from C5: 358 of the 533 reviewed rows were
+audit-accepted rather than human-verdicted, and counterparty is compared as a string — some of
+the 22% counterparty misses will be label-convention variance ("ZOMATO-UPI@HDFC" vs
+"Zomato") rather than model error. Not tunable now; it belongs in the champion post-mortem.
+Speed: 6.3 s/step on the L4 → ~2.5 h per sweep run; sessions 2–4 to try A100, seed replicate
+on the leader's GPU type.
+
+**Hardware note, pre-committed 2026-09-10 before any A100 run.** exp_101 ran on an L4 (run
+aaf9e028, 64.9%, 2.5 h). Sessions 2–4 move to A100 for wall-clock, and exp_101 will be re-run
+on A100 at the end so all four grid points share hardware. Rule, fixed now: **the A100 exp_101
+is the sweep entry**; the L4 run stays in the table as a hardware-noise datapoint and its gap to
+the A100 twin is reported next to the seed-twin gap (exp_105). Neither number is chosen after
+the fact. The seed replicate runs on A100 like everything else.
+
+**exp_102 read (2026-09-11).** 229 vs 231 rows — a 2-row difference, a **tie** under the
+< 10-row rule. Doubling the learning rate moved nothing that matters: category +0.8 pt,
+counterparty −1.7 pt, scam recall 1.00 at the same precision, parse rate 99.7 → 98.9%. Val loss
+0.0040 after 2 epochs (logged for the overfitting curve; eliminates no one). Hardware: Colab
+allocated an L4 despite the A100 request, so exp_101 and exp_102 share hardware; if exp_103/104
+also run on L4 the pre-committed A100 re-run of exp_101 is unnecessary and the L4 run stands.
+
+**exp_103 read (2026-09-11).** 226 rows — 5 below exp_101, within the tie band. Rank 32 at the
+same learning rate is slightly worse on every judgment field (category −1.1 pt, parse −1.1 pt)
+and no better anywhere; the doubled adapter (932 MB vs 515 MB) buys nothing. Val loss 0.0040,
+identical to exp_102's. L4 again (Colab allocated L4 three times running). Three runs now sit
+inside a 5-row band, 226–231, with mechanics ≥ 97% and counterparty 76–78% on all of them:
+the grid is flat and counterparty is the ceiling, not r or lr.
+
+**exp_104 read (2026-09-11) — the sweep leader.** 249 rows, +18 over exp_101, outside the
+tie band. Exact McNemar on the paired rows files (scripts/mcnemar.py): exp_101-only 5,
+exp_104-only 23, margin 18, **p ≈ 0.001** — a real difference by the pre-registered test.
+Neither lever alone did it (102: lr×2 → −2 rows; 103: r×2 → −5 rows); together they lift every
+judgment field: category 90.4% (best by 2.5 pt), counterparty 78.9% (best), scam precision
+0.89 at recall 1.00, parse 99.4%. Val loss 0.0040 — the same as 102/103, so val is blind to this
+gap exactly as Era 1 found. All four runs on L4; the A100 re-run pre-commitment is void
+(nothing to harmonise) and struck.
+
+**Refinement #1 = exp_105**, the seed-43 twin of exp_104 (rule 5), pushed 2026-09-11. Its gap
+to exp_104 is the era's measured noise floor. Read rule, fixed before it runs: if |Δ| < 10 rows
+the 18-row lead over exp_101 stands as real and exp_104 (or 105, whichever is higher — they are
+the same recipe) is the champion candidate; if |Δ| ≥ 10 the tie band is wider than assumed and
+the leader claim is downgraded to "within noise" pending refinement #2.
