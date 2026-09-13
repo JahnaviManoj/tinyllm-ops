@@ -780,6 +780,7 @@ channel, account_tail) are reported in the MLflow run and were ≥ 95% on every 
 | exp_103 | 32 | 1e-4 | L4 (bf16) | 2.6 h | 63.5% | 226 | 98.6% | 86.0% | 76.7% | 0.84 / 0.97 |
 | exp_104 | 32 | 2e-4 | L4 (bf16) | 2.6 h | **69.9%** | **249** | 99.4% | 90.4% | 78.9% | 0.89 / 1.00 |
 | exp_105 (=104, seed 43) | 32 | 2e-4 | L4 (bf16) | 2.6 h | 65.2% | 232 | 99.7% | 89.6% | 78.1% | 0.80 / 1.00 |
+| exp_111 (**0.8B**, =101 recipe) | 16 | 1e-4 | L4 (bf16) | 2.5 h | 64.3% | 229 | 99.7% | 85.7% | 77.5% | 0.88 / 0.97 |
 
 **exp_101 read.** Mechanics are essentially solved (is_transaction 99.2%, amount 99.2%,
 txn_type 98.3%, account_tail 98.0%, channel 95.5%). The loss is in the two judgment fields:
@@ -858,3 +859,48 @@ difference on this gate.** Two consequences, both following the read rule pre-re
   before any number existed.
 - The ceiling is counterparty (76–79% on all five runs, every other field ≥ 86%) and it moved
   with nothing. Post-mortem target: the counterparty label convention and string comparison.
+
+## 2026-09-12 — exp_111: the 0.8B ties the 2B → champion candidate by the tie-break, pending the bar
+
+**exp_111** (Qwen3.5-0.8B @ 2fc06364, exp_101's recipe, only the model swapped): 229 rows.
+Paired McNemar: vs exp_101 margin 2, p = 0.885; vs exp_105 margin 3, p = 0.775 — ties. vs
+exp_104 margin 20, p = 0.004 — but exp_104 is the seed outlier already downgraded on 2026-09-12
+(its own twin sits 17 rows below it). The field is therefore {101, 102, 103, 105, 111} tied
+inside one noise floor, with 104 a lucky draw of the same recipe as 105.
+
+**Tie-break, as pre-registered (2026-09-03) and confirmed before this run (option 1,
+2026-09-12):** fewer epochs → lower lr → smaller rank → **smaller model → exp_111.**
+The 0.8B is the champion candidate: 64.3% exact on gate_v2, 366 MB adapter, ~⅓ the parameters
+of the 2B for a gate difference the test cannot see. Field profile matches the 2B runs
+(mechanics ≥ 95%, category 85.7%, counterparty 77.5%, scam 0.88 / 0.97).
+
+**Pending before the title is final:** the success bar (rule 6 — beat the 26B few-shot on
+gate_v2 by ≥ 10 rows, reported against the 17-row floor), from the baseline ladder (cell 9).
+
+**Anomaly for the record:** the 0.8B took 149 min on the L4 — the same wall-clock as the 2B
+(0.156 vs 0.15 steps/s). Per-step time is evidently not dominated by parameter count on this
+stack; the likely cause is the pure-torch fallback for the GatedDeltaNet linear-attention
+layers (TUTORIAL_V2 B4 mentions `pip install kernels` as an optional, unverified fix). Not
+investigated now; it does not affect the eval.
+
+## 2026-09-12 — Baseline ladder on gate_v2 (D3), first pass: four rungs in, two pending
+
+All on the same 356 gate rows, untuned models with a chat request; few-shot = the 4
+pre-registered exemplars from train_v4 (rule 6). `rows` = exact-match rows.
+
+| rung | exact | rows | parse | scam recall |
+|---|---|---|---|---|
+| 0.8B zero-shot | 0.0% | 0 | 0% | 0 |
+| 0.8B few-shot | 6.5% | 23 | 27% | 0.05 |
+| 2B zero-shot | 0.0% | 0 | 2% | 0 |
+| 2B few-shot | 11.0% | 39 | 43% | 0.51 |
+| regex | — pending — | | | |
+| **26B few-shot (the bar)** | — pending — | | | |
+| exp_111 (0.8B fine-tuned, champion candidate) | 64.3% | 229 | 99.7% | 0.97 |
+
+Zero-shot is exactly what cell 4's gen_smoke showed: the untuned models answer in their own
+schema, so nothing parses. Few-shot gets the 2B to 39 rows; the fine-tuned 0.8B is 190 rows
+above that. The two missing rungs failed on a packaging slip, not a modelling one: the
+`[colab]` extra lacks `datasketch` (and the regex rung imported it transitively via
+`data_gen`). Fixed: `data_gen` imports datasketch lazily inside `dedupe()`, and the sweep
+notebook installs `[colab,gen]`. The 26B rung is the success bar; nothing is final until it lands.

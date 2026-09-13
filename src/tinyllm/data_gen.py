@@ -11,7 +11,6 @@ from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 from tinyllm.schema import ExpenseRecord, Category, TxnType
 from tinyllm.templates import Template, TEMPLATES
-from datasketch import MinHash, MinHashLSH
 
 # Pinned, not "-latest": the dataset must be reproducible from the manifest.
 # (gemini-2.5-flash from the tutorial is closed to new accounts as of 2026-08,
@@ -292,7 +291,9 @@ def generate_dataset(
     return dataset
 
 
-def _minhash(sms: str) -> MinHash:
+def _minhash(sms: str):
+    from datasketch import MinHash  # gen extra; only dedupe's callers need it
+
     m = MinHash(num_perm=128)
     for word in sms.lower().split():
         m.update(word.encode())
@@ -303,6 +304,8 @@ def dedupe(examples, threshold=0.85, against=None):
     """Keep only examples whose word-shingles aren't ~identical to one already
     kept — nor to anything in `against` (e.g. the train pool, so test examples
     that near-match a training example don't become freebies)."""
+    from datasketch import MinHashLSH  # gen extra; only dedupe needs it
+
     lsh = MinHashLSH(threshold=threshold, num_perm=128)
     for j, ex in enumerate(against or []):
         lsh.insert(f"against-{j}", _minhash(ex["sms"]))
