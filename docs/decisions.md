@@ -897,6 +897,7 @@ pre-registered exemplars from train_v4 (rule 6). `rows` = exact-match rows.
 | regex | 0.0% | 0 | 0% | 0 |
 | **26B few-shot (the bar, pre-registered prompt)** | **27.0%** | **96** | 34% | 0.90 |
 | **26B few-shot + schema hint (sensitivity, NOT the bar)** | **72.2%** | **257** | 100% | 1.00 |
+| Gemma-3-270M fine-tuned — Era-1 champion exp_009 (D4 floor, raw Era-1 prompt) | 8.1% | 29 | 56% | 0.03 |
 | exp_111 (0.8B fine-tuned, champion candidate) | 64.3% | 229 | 99.7% | 0.97 |
 
 Zero-shot is exactly what cell 4's gen_smoke showed: the untuned models answer in their own
@@ -1011,3 +1012,48 @@ model's — and the cashback/refund counterparty convention is under-specified i
   before any gate is frozen. Also: the few-shot baseline prompt must carry the output schema.
 - The once-only final (final_v2, same batch and conventions as gate_v2) will carry the same
   ~10-pt ATM effect. It is reported as pre-registered; this entry is the footnote.
+
+## 2026-09-13 — Stage 2 closed: exp_111 on the once-only sets (spent)
+
+Champion **exp_111** (Qwen3.5-0.8B @ 2fc06364, r 16, lr 1e-4, 2 epochs, train_v4, seed 42;
+adapter 366 MB, run 85f39fed). Spent 2026-09-13 in one Colab session (cells 11–13); final_v2
+deleted from the VM afterwards. Runs FINAL2-exp_111 (af70c3c6), OOD-exp_111 (5cb87622),
+SCAMHOLDOUT-exp_111 (c11d9906), each with a rows file.
+
+| set | n | exact | rows | 95% CI | parse | category | counterparty | scam P / R | Era-1 champion (exp_009) |
+|---|---|---|---|---|---|---|---|---|---|
+| gate_v2 (selection) | 356 | 64.3% | 229 | ±5.0 | 99.7% | 85.7% | 77.5% | 0.88 / 0.97 | 7.8% on gate_v1 |
+| **final_v2 (once)** | 177 | **59.9%** | **106** | **±7.2** | 99.4% | 86.4% | 72.3% | 0.87 / 1.00 | 3.2% on final_v1 |
+| **OOD (once)** | 25 | **44.0%** | **11** | ±19 | 96% | 76% | 68% | no scam rows | **0%** (same set) |
+| **scam holdout (once)** | 60 | **91.7%** | **55** | ±7 | 100% | — | — | 1.00 / 0.92 | never measured |
+
+**Reading.** final_v2 lands 4.4 pt below the gate, inside the gate's own CI — no evidence of
+selection bias from the sweep (the champion was chosen by tie-break, not by peak). Mechanics
+hold on the final (is_transaction 98.9%, amount 98.9%, txn_type 96.0%); the drop is in
+counterparty (72.3%), which carries the ATM-convention effect diagnosed above (final_v2 is
+the same batch as gate_v2). OOD — 25 real ICICI-style SMS, 24 transactions — goes from 0% in
+Era 1 to 44%, with mechanics at 88–92%; n = 25 makes the point estimate soft but the move from
+zero is not. The real-scam holdout is the cleanest number: 55 of 60 real UK smishing texts
+flagged, none mistaken for a transaction, on a model trained on Indian synthetic scams.
+
+**Not beaten:** a schema-informed 26B few-shot (257 on the gate). **Beaten:** every local rung,
+the pre-registered 26B prompt (96), and the Era-1 champion by an order of magnitude on every
+set the two share. The 0.8B does this offline in 366 MB of adapter on top of a 0.8B base.
+
+**Era-2 lessons, for Era 3 (all diagnosed, none fixed here by design):**
+1. Reconcile label conventions between teacher-labelled train and human-reviewed gate BEFORE
+   freezing a gate — ATM counterparty alone cost ~10 pt. Add a `check_conventions` step.
+2. The few-shot baseline prompt must carry the output schema; a schema-blind bar is a strawman.
+3. A 356-row gate has a 17-row (4.8 pt) seed floor; the "< 10 rows = tie" rule was too tight.
+   Size the gate (or replicate seeds) so the floor is smaller than the effects you care about.
+4. r and lr did not matter at 0.8B–2B on 11k rows; two seeds of one recipe teach more than
+   four grid points.
+5. The 0.8B took as long as the 2B per step on an L4 — profile the GatedDeltaNet fallback
+   (`pip install kernels`) before the next sweep.
+
+**D4, the Era-1 floor (2026-09-13).** exp_009 (gemma-3-270m-it, template-data champion of Era 1)
+rebuilt locally from its adapter and scored on gate_v2 with its own raw prompt: **8.1%, 29
+rows**, schema-valid 56%, scam recall 0.03 — the same number it posted on gate_v1 (7.8%), so
+the two gates are consistent in difficulty. Era 2's champion is 7.9× above it on the gate, 19×
+on the final, and ∞ on OOD (0% → 44%). Run `gate2-exp_009` in MLflow. README results table
+filled in with every rung; Stage 2 is closed.

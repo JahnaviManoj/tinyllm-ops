@@ -17,9 +17,9 @@ cloud API, the right solution has to be small enough to run cheaply — ideally 
 
 ## The solution
 
-Take **Qwen3.5-2B** — a model small enough to serve on CPU (~1.2 GB at 4-bit) — and
-specialize it with **QLoRA fine-tuning** until it turns any transaction SMS into a strict,
-schema-valid record:
+Take a small Qwen3.5 model — the **0.8B**, after a five-run sweep showed the 2B could not
+beat it beyond seed noise — and specialize it with **QLoRA fine-tuning** until it turns any
+transaction SMS into a strict, schema-valid record:
 
 ```json
 {
@@ -40,22 +40,40 @@ apps use, through zero/few-shot small models, up to a ~13×-bigger frontier-clas
 all on the same hand-reviewed gate set written by a *different* model than the training
 teacher, with a frozen final set touched exactly once for the headline number:
 
-| Model | Exact match (gate set)¹ | Serving cost |
+| Model | Exact match, gate_v2 (356 rows)¹ | Serving cost |
 |---|---|---|
-| Per-template regex (industry baseline) | X% | ~free |
-| Qwen3.5-2B zero-shot | X% | CPU |
-| Qwen3.5-0.8B few-shot | X% | CPU |
-| Qwen3.5-2B few-shot | X% | CPU |
-| Gemma 3 270M fine-tuned (smaller-student comparison) | X% | CPU |
-| Qwen3.5-0.8B fine-tuned (efficiency comparison) | X% | CPU |
-| **Qwen3.5-2B fine-tuned (this repo)** | **X%** | **CPU, ~$0/mo** |
-| Gemma 4 26B few-shot (~13× bigger) | X% | API $$ |
+| Per-template regex (industry baseline) | 0% | ~free |
+| Qwen3.5-2B zero-shot (0.8B: also 0%) | 0% | CPU |
+| Qwen3.5-0.8B few-shot | 6.5% | CPU |
+| Qwen3.5-2B few-shot | 11.0% | CPU |
+| Gemma 3 270M fine-tuned (Era-1 champion, template data) | 8.1% | CPU |
+| Qwen3.5-2B fine-tuned (5 runs: 63.5–69.9%, tie-break loser) | 64.9% | CPU |
+| **Qwen3.5-0.8B fine-tuned (this repo's champion, exp_111)** | **64.3%** | **CPU / on-device, ~$0/mo** |
+| Gemma 4 26B few-shot, pre-registered prompt (~30× bigger) | 27.0% | API $$ |
+| Gemma 4 26B few-shot, told the output schema² | 72.2% | API $$ |
+
+**Once-only sets, spent exactly once on the champion:** frozen final **59.9%** (106/177,
+±7 pt) · out-of-distribution real SMS **44%** (11/25; the Era-1 champion scored 0% on the same
+set) · real-scam holdout **91.7%** (55 of 60 real smishing texts flagged, none mistaken for a
+transaction).
 
 ¹ Strict metric: output must parse AND validate against the schema with *every* field
-exactly right, on ~300 hand-reviewed messages. X% placeholders fill in as each stage
-lands; all runs logged in MLflow — details in [docs/decisions.md](docs/decisions.md).
+exactly right. The gate is 356 SMS written by a *different* teacher model than the training
+teacher, reviewed row by row. Two seeds of the same recipe differ by 17 rows (4.8 pt), so
+differences under that are noise — which is why the 0.8B and 2B are a tie, and the tie goes
+to the smaller model by a rule fixed before any run. All runs in MLflow; every number's
+provenance is in [docs/decisions.md](docs/decisions.md).
+
+² The pre-registered 26B prompt named the fields but not their allowed values, so the model
+answered `"channel": "Debit Card"` and failed the schema two thirds of the time. Told the
+schema, it beats the champion by 28 rows. Both numbers are reported: **the 0.8B reaches 89%
+of a schema-informed 26B's score, offline, at ~1/30th the parameters** — that is the honest
+headline, not "beats the 26B". The one field every model stalls on (counterparty, ~75%)
+traces to a train/test labelling inconsistency on ATM rows, diagnosed in the post-mortem and
+left unfixed for this era by design.
+
 The multi-size ladder also answers a question most fine-tuning projects skip:
-**how much model does this task actually need?**
+**how much model does this task actually need?** Here: 0.8B, and no more.
 
 ## Why the engineering is the point
 
@@ -129,16 +147,17 @@ data-poisoning threat model.
 ## Cost
 
 Runs on an Azure for Students subscription: Container Apps free grant + scale-to-zero,
-hosted MLflow via Azure ML, ghcr.io images, Blob storage, Grafana Cloud free tier, Gemini
-free tier for data generation, Colab free T4 for training (a 2B QLoRA fits a T4
-comfortably). The only real-money item is optional GPU retraining on RunPod
-(~$0.50–1/run). Expected total: **$10–25**.
+hosted MLflow via Azure ML, ghcr.io images, Blob storage, Grafana Cloud free tier. Era 2
+outgrew two free tiers: Colab Pro (L4; a 2B run is ~2.5 h, the 0.8B the same — the linear-
+attention layers run a pure-PyTorch fallback) and a billing-enabled Gemini key (the free
+tier's 20 requests/day was the binding constraint for test-set generation and the 26B
+baseline). Expected total: **$25–40**.
 
 ## Quickstart
 
 ```bash
 git clone <repo> && cd tinyllm-ops
-uv sync          # everything; Colab uses `pip install -e ".[colab]"` instead
+uv sync          # everything; the Colab notebooks install `-e ".[colab]"` / `".[colab,gen]"`
 python run_pipeline.py --config configs/smoke.yaml   # 50-example CPU smoke run (0.8B; entrypoint lands in Stage 3)
 ```
 
