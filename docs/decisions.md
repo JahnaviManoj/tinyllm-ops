@@ -894,8 +894,9 @@ pre-registered exemplars from train_v4 (rule 6). `rows` = exact-match rows.
 | 0.8B few-shot | 6.5% | 23 | 27% | 0.05 |
 | 2B zero-shot | 0.0% | 0 | 2% | 0 |
 | 2B few-shot | 11.0% | 39 | 43% | 0.51 |
-| regex | — pending — | | | |
-| **26B few-shot (the bar)** | — pending — | | | |
+| regex | 0.0% | 0 | 0% | 0 |
+| **26B few-shot (the bar, pre-registered prompt)** | **27.0%** | **96** | 34% | 0.90 |
+| **26B few-shot + schema hint (sensitivity, NOT the bar)** | **72.2%** | **257** | 100% | 1.00 |
 | exp_111 (0.8B fine-tuned, champion candidate) | 64.3% | 229 | 99.7% | 0.97 |
 
 Zero-shot is exactly what cell 4's gen_smoke showed: the untuned models answer in their own
@@ -904,3 +905,109 @@ above that. The two missing rungs failed on a packaging slip, not a modelling on
 `[colab]` extra lacks `datasketch` (and the regex rung imported it transitively via
 `data_gen`). Fixed: `data_gen` imports datasketch lazily inside `dedupe()`, and the sweep
 notebook installs `[colab,gen]`. The 26B rung is the success bar; nothing is final until it lands.
+
+**Regex rung = 0/356 (2026-09-13), by construction.** The regex baseline compiles the Era-1
+datagen template shapes; it matches 95/500 template-made train_v3 rows but 0/154 of gate_v1 and
+0/356 of gate_v2 — both generated free-form by a different teacher precisely so that no
+template shape recurs. That is the rung's documented failure mode ("total failure on unseen
+shapes"), reported as the honest floor, not a bug. **26B few-shot:** 17–30 s per call on the
+API (Gemma-4-26B, long few-shot prompt) → 356 rows ≈ 2.3 h sequentially; moved off Colab to a
+local background run with 6 concurrent calls (`--workers`, order-preserving, default 1).
+
+## 2026-09-13 — The success bar: 26B few-shot = 96 rows; exp_111 clears it by 133
+
+**Official (pre-registered prompt, rule 6):** Gemma-4-26B few-shot on gate_v2 = **27.0%,
+96 rows**; schema-valid 34%; scam P/R 0.97 / 0.90. Run locally (API only; 17–30 s per call,
+6 in flight, ~90 min). **exp_111 (0.8B fine-tuned): 229 rows → margin 133 rows**, seven to
+eight times the 17-row noise floor. McNemar needs no computation: even if every 26B-correct row
+were also exp_111-correct, exp_111-only ≥ 133 and 26B-only = 0 (p ≈ 2⁻¹³³). The success bar is
+cleared; **exp_111 is the Era-2 champion** by the pre-registered rules, subject only to the
+once-only final.
+
+**Why the 26B "fails to parse" two thirds of the time — diagnosed, not assumed.** Eight raw
+responses probed: all finish STOP, all clean JSON, all extract. The failures are *schema*
+failures: the model answers `"channel": "Debit Card"`, `"RTGS"`, `"PhonePe"`,
+`"category": "dividend"`, `"cash withdrawal"`, `"refund"` — sensible values that are not in our
+enums. The pre-registered prompt names the nine fields but never lists the allowed values,
+and four exemplars cannot show fifteen categories. Era 1 saw the same rung at 43% schema-valid
+and never asked why. When its output IS valid, the 26B is near-perfect on mechanics — so the
+pre-registered bar understates the competitor.
+
+**Sensitivity run, pre-declared before it starts:** `baselines --mode few-big --schema-hint`
+appends the enums, the amount format and the money-moved rule to the prompt — a *stronger*
+26B, which can only make our claim harder. Rules: the pre-registered prompt remains the
+official bar and decides the champion; the schema-hint number is reported beside it in the
+README and here; if it comes within 17 rows of exp_111 that is stated as prominently as the
+win. It is not tuned further whatever it shows.
+
+## 2026-09-13 — Sensitivity result: a schema-informed 26B few-shot BEATS the champion by 28 rows
+
+**Stated as prominently as the win, per the pre-declaration above.** Gemma-4-26B few-shot with
+the enums, amount format and money-moved rule in the prompt (`--schema-hint`): **72.2%, 257
+rows** on gate_v2 — schema-valid 100%, every mechanical field 100%, category 94.9%,
+counterparty 78.7%, scam P/R 0.975 / 1.00. That is **28 rows above exp_111 (229)** and 8 above
+the best fine-tuned run (exp_104, 249). 28 > the 17-row noise floor.
+
+**What stands and what doesn't.**
+- The champion is unchanged: exp_111, by the pre-registered rules. The sensitivity run was
+  declared before it ran as unable to change the title, and it is not tuned further.
+- The claim "the fine-tuned 0.8B beats the 26B few-shot" is true **only against the
+  pre-registered, schema-blind prompt** (96 rows). Against a 26B that is told the output
+  schema — the fairer comparison — the 0.8B reaches **89% of the 26B's gate score** (229/257),
+  offline, at ~1/30th the parameters. That is the honest headline for the README, with both
+  numbers side by side.
+- Rule 8's circularity is now visible in the numbers: the 26B wrote most of train_v4's labels,
+  so its judgment IS the label convention; it also scores exactly the fine-tuned models'
+  counterparty ceiling (78.7% vs 77–79%). Three different models — 0.8B-ft, 2B-ft, 26B
+  few-shot — all stop at ~78% on counterparty. That is not a capability ceiling; it is the
+  label / string-comparison ceiling, and the post-mortem below should show it.
+
+**Not done:** a paired McNemar for 26B-hint vs exp_111 (the baselines rung does not write a
+rows file; the 28-row margin exceeds the floor and the 26B's win is not a claim of ours).
+The pre-registered prompt's blindness to the schema is recorded as an Era-2 design error to
+fix in any Era 3 (the bar must be told the same output contract the student is trained on).
+
+## 2026-09-13 — Champion post-mortem: the counterparty ceiling is a train/gate label conflict on ATM rows
+
+**Method.** exp_111's adapter pulled from Azure ML, merged locally in fp32, scored on gate_v2
+on CPU with predictions saved (`model_eval --rows-out` now records `pred`). Reproduces the
+Colab run exactly: 229 correct, 354/356 rows agree (2 flips = fp32 CPU vs GPU numerics).
+Predictions file attached to the `gate2-exp_111` MLflow run.
+
+**Hypothesis going in:** counterparty misses are string-format variance ("ZOMATO-UPI@HDFC" vs
+"Zomato"). **Wrong** — after normalising case, punctuation, VPA suffixes and "India/Ltd", only
+3 rows change, and only 2 gate rows are lost purely to formatting.
+
+**What it actually is.** Of 274 parsed transaction predictions, 194 match the counterparty
+exactly; the largest miss bucket is 47 rows (17%) where the model answered `null` and the
+label has a name — and 37 of those 47 are ATM / cash-deposit / ATM-reversal rows. The
+conventions conflict at the source:
+
+| set | ATM rows | counterparty null |
+|---|---|---|
+| train_v4 (teacher-labelled) | 117 | **90.6%** |
+| gate_v1 (Era-1, hand-reviewed) | 28 | 0% |
+| gate_v2 (C5-reviewed) | 55 | 0% |
+
+The model learned exactly what train taught. The gate's convention ("SBI ATM", "CDM-8839",
+"ATM") came from Era-1 gold and was carried into the C5 audit instructions; nobody checked it
+against train. **37 gate rows are lost to nothing but this**; with a consistent convention
+exp_111 would score ≈ 266/356 (74.7%). The 26B few-shot also answers `null` for ATM rows (it
+wrote train's labels — rule 8's circularity), so the 26B-hint / 2B / 0.8B all stop at 77–79%
+on counterparty for the same reason; the ranking between them does not change.
+
+The non-ATM remainder (17 rows lost only to counterparty) is a mix of genuine near-misses and
+smaller convention gaps: "Zepto Refund" vs "Zepto", "GPay" vs "GPay cashback",
+"BOOKMYSHOW REFUND" vs "BOOKMYSHOW", "TATA" vs "TATA 1MG", two refunds nulled. Those are the
+model's — and the cashback/refund counterparty convention is under-specified in train too.
+
+**Consequences.**
+- Official Stage-2 numbers are **unchanged**. gate_v2 is spent for Stage 2; relabelling it after
+  seeing model errors is exactly what the pre-registration forbids.
+- Recorded as an Era-2 data defect, inherited from Era 1: the ATM counterparty convention was
+  never reconciled between the teacher (train) and the human review (gate). **Era-3 fix:**
+  settle it once — either a rulebook-style rule at assembly that names the ATM/CDM identifier
+  in train, or `null` in the gate — and run `check_conventions` (train vs gate, per channel)
+  before any gate is frozen. Also: the few-shot baseline prompt must carry the output schema.
+- The once-only final (final_v2, same batch and conventions as gate_v2) will carry the same
+  ~10-pt ATM effect. It is reported as pre-registered; this entry is the footnote.

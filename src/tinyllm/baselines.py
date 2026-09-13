@@ -36,6 +36,20 @@ Respond with ONLY the JSON.
 {examples}SMS: {sms}
 JSON:"""
 
+# Sensitivity variant (NOT the pre-registered bar; reported alongside it, 2026-09-13): the
+# pre-registered prompt names the fields but never lists the allowed values, so a capable
+# model answers "channel": "Debit Card" / "category": "dividend" and fails schema validation
+# (26B few-shot: 34% schema-valid on gate_v2, near-perfect when valid). This variant tells
+# the model the enums and the amount format — a STRONGER competitor, which can only make our
+# claim harder. The champion title rests on the pre-registered prompt; this is for honesty.
+SCHEMA_HINT = """Rules: amount is a decimal string with 2 places ("450.00"); currency "INR";
+txn_type is "debit" or "credit"; channel is one of UPI, card, netbanking, ATM, wallet (or null);
+category is one of food, groceries, transport, shopping, bills_utilities, entertainment, health,
+education, travel, rent, salary, transfer, investment, fees, other (or null);
+if no money moved (OTP, reminder, promo, scam) set is_transaction false and every other field null
+except is_suspected_scam.
+"""
+
 # Few-shot examples are drawn deterministically from the train pool (never the
 # eval set): a UPI debit, a salary credit, an OTP negative, and a scam — the
 # four behaviors the schema most needs demonstrated.
@@ -125,17 +139,37 @@ def predict_local(
     return outs
 
 
-def predict_api(sms_list: list[str], examples: str) -> list[str]:
-    from tinyllm.data_gen import _call_teacher
+def predict_api(
+    sms_list: list[str], examples: str, workers: int = 1, schema_hint: bool = False
+) -> list[str]:
+    """One API call per SMS, in order. `workers` > 1 overlaps calls (the 26B takes
+    17–30 s each; 356 rows sequentially is ~2.3 h, with 6 in flight ~20 min). Output
+    order and content are unchanged — only throughput."""
+    from concurrent.futures import ThreadPoolExecutor
 
-    outs = []
-    for i, sms in enumerate(sms_list):
-        raw = _call_teacher(
-            PROMPT.format(examples=examples, sms=sms), model=BIG_MODEL_ID
+    from tinyllm.data_gen import _call_teacher, get_client
+
+    get_client()  # build the shared client in the main thread before any worker starts
+
+    prompt = (
+        PROMPT.replace(
+            "Respond with ONLY the JSON.", SCHEMA_HINT + "Respond with ONLY the JSON."
         )
-        outs.append(extract_json(raw))
-        if (i + 1) % 25 == 0:
-            print(f"  {i + 1}/{len(sms_list)}", flush=True)
+        if schema_hint
+        else PROMPT
+    )
+
+    def one(sms: str) -> str:
+        return extract_json(
+            _call_teacher(prompt.format(examples=examples, sms=sms), model=BIG_MODEL_ID)
+        )
+
+    outs: list[str] = []
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        for i, out in enumerate(pool.map(one, sms_list)):
+            outs.append(out)
+            if (i + 1) % 25 == 0:
+                print(f"  {i + 1}/{len(sms_list)}", flush=True)
     return outs
 
 
@@ -160,6 +194,14 @@ def main():
     parser.add_argument(
         "--limit", type=int, default=None, help="first N rows (smoke tests)"
     )
+    parser.add_argument(
+        "--workers", type=int, default=1, help="concurrent API calls (few-big only)"
+    )
+    parser.add_argument(
+        "--schema-hint",
+        action="store_true",
+        help="few-big sensitivity variant: tell the model the enums (NOT the pre-registered bar)",
+    )
     args = parser.parse_args()
 
     rows = [json.loads(line) for line in open(args.data)][: args.limit]
@@ -167,7 +209,9 @@ def main():
     examples = "" if args.mode == "zero-local" else few_shot_block(args.train_pool)
     model_id = BIG_MODEL_ID if args.mode == "few-big" else args.local_model
     if args.mode == "few-big":
-        preds = predict_api(sms_list, examples)
+        preds = predict_api(
+            sms_list, examples, workers=args.workers, schema_hint=args.schema_hint
+        )
     else:
         preds = predict_local(sms_list, examples, args.local_model, args.local_revision)
     report = evaluate(preds, [r["label"] for r in rows])
@@ -175,7 +219,8 @@ def main():
     import mlflow
 
     mlflow.set_experiment("baselines")
-    with mlflow.start_run(run_name=f"{args.mode}-{model_id.split('/')[-1]}"):
+    suffix = "-schema-hint" if args.schema_hint else ""
+    with mlflow.start_run(run_name=f"{args.mode}-{model_id.split('/')[-1]}{suffix}"):
         mlflow.log_params(
             {
                 "mode": args.mode,
@@ -185,6 +230,7 @@ def main():
                 "data": args.data,
                 "n": len(rows),
                 "few_shot": args.mode != "zero-local",
+                "schema_hint": args.schema_hint,
             }
         )
         for k, v in report.items():

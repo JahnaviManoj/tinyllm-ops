@@ -4,6 +4,7 @@ import itertools
 import os
 import random
 import re
+import threading
 import time
 import httpx
 from google import genai
@@ -24,18 +25,24 @@ TEACHER_MODEL = "gemini-3.5-flash-lite"
 _client = None
 
 
+_client_lock = threading.Lock()
+
+
 def get_client():
     global _client
-    if _client is None:
-        # One attempt at the SDK layer: retries live in _call_teacher only, so the two
-        # layers can never multiply (free-tier DAILY quota counts failed attempts too).
-        _client = genai.Client(
-            api_key=os.environ["GEMINI_API_KEY"],
-            http_options=genai_types.HttpOptions(
-                retry_options=genai_types.HttpRetryOptions(attempts=1)
-            ),
-        )
-    return _client
+    with (
+        _client_lock
+    ):  # baselines --workers: concurrent callers must not race to build one
+        if _client is None:
+            # One attempt at the SDK layer: retries live in _call_teacher only, so the two
+            # layers can never multiply (free-tier DAILY quota counts failed attempts too).
+            _client = genai.Client(
+                api_key=os.environ["GEMINI_API_KEY"],
+                http_options=genai_types.HttpOptions(
+                    retry_options=genai_types.HttpRetryOptions(attempts=1)
+                ),
+            )
+        return _client
 
 
 GEN_PROMPT = """You generate realistic Indian bank/UPI transaction SMS for training data.

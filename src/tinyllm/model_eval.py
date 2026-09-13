@@ -73,7 +73,7 @@ def eval_model(
     report = evaluate(preds, [r["label"] for r in rows])
     if rows_out:  # per-row verdicts — what McNemar pairs up
         per = [
-            {"sms": r["sms"], "correct": row_correct(p, r["label"])}
+            {"sms": r["sms"], "correct": row_correct(p, r["label"]), "pred": p}
             for p, r in zip(preds, rows)
         ]
         os.makedirs(os.path.dirname(rows_out) or ".", exist_ok=True)
