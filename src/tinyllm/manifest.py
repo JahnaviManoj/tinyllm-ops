@@ -115,6 +115,25 @@ def fetch_dataset(manifest_path: str, out_path: str):
     )
 
 
+def fetch_local(manifest_path: str) -> str:
+    """Path to the hash-verified local copy; fetched only if missing or stale."""
+    with open(manifest_path) as f:
+        m = json.load(f)
+    local = os.path.join("data/generated", os.path.basename(m["blob_path"]))
+    ok = False
+    if os.path.exists(local):
+        with open(local, "rb") as f:
+            ok = hashlib.sha256(f.read()).hexdigest() == m["sha256"]
+    if not ok:
+        fetch_dataset(manifest_path, local)
+    return local
+
+
+def fetch_rows(manifest_path: str) -> list[dict]:
+    with open(fetch_local(manifest_path)) as f:
+        return [json.loads(line) for line in f]
+
+
 def main():
     from dotenv import load_dotenv
 

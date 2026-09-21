@@ -60,6 +60,26 @@ def predict_merged(
     return outs
 
 
+def run_behaviors(model_dir: str, chat: bool = False) -> dict[str, bool]:
+    """CheckList suite (2.2): one perturbed BASE_SMS per behavior → pass/fail.
+
+    One anchor SMS per behavior makes each a boolean, not a rate; the Stage 3
+    gate is therefore "every behavior passes"."""
+    from tinyllm.behaviors import BASE_SMS, BEHAVIORS
+    from tinyllm.schema import ExpenseRecord
+
+    preds = predict_merged(model_dir, [t(BASE_SMS) for _, t, _ in BEHAVIORS], chat=chat)
+    out = {}
+    for (name, _, assertion), pred in zip(BEHAVIORS, preds):
+        try:
+            out[name] = bool(assertion(ExpenseRecord.model_validate(json.loads(pred))))
+        except (
+            ValueError
+        ):  # JSONDecodeError / pydantic ValidationError → failed behavior
+            out[name] = False
+    return out
+
+
 def eval_model(
     model_dir: str,
     data_path: str,

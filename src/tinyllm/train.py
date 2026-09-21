@@ -134,7 +134,7 @@ def train(
     limit: int | None = None,
     log_merged: bool = False,
     resume_from: str | None = None,
-):
+) -> str:
     from peft import LoraConfig, PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from trl import SFTConfig, SFTTrainer
@@ -150,7 +150,7 @@ def train(
     compute_dtype = resolve_compute_dtype(cfg.compute_dtype)
 
     mlflow.set_experiment("tinyllm-finetune")  # honours MLFLOW_TRACKING_URI
-    with mlflow.start_run(run_name=os.path.basename(config_path)):
+    with mlflow.start_run(run_name=os.path.basename(config_path)) as run:
         mlflow.log_params(flat_params(cfg))  # includes compute_dtype AS CONFIGURED
         mlflow.log_param("config_path", config_path)
         mlflow.log_param(
@@ -265,6 +265,7 @@ def train(
             f"merged model + tokenizer → {merged_dir}"
             + (" (logged to MLflow)" if log_merged else "")
         )
+        return run.info.run_id  # what the pipeline registers (Stage 3)
 
 
 def main():

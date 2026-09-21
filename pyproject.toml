@@ -59,7 +59,7 @@ colab = [
 ]
 # Orchestration, Stage 3. Nothing imports zenml yet.
 pipelines = [
-    "zenml>=0.96.2",
+    "zenml[local]>=0.96.2",
 ]
 all = [
     "tinyllm-ops[train,gen,azure,blob,tracking,pipelines]",
