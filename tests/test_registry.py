@@ -65,3 +65,48 @@ def test_sweep_run_without_merged_model_is_refused(store):
     with pytest.raises(FileNotFoundError, match="no 'model/' artifact"):
         register_as_challenger(run_id, REPORT)
     assert MlflowClient().search_registered_models() == []  # nothing half-registered
+
+
+# ---- Azure ML has no alias endpoint (404 → ENDPOINT_NOT_FOUND); tags stand in.
+
+
+@pytest.fixture
+def no_alias_api(monkeypatch):
+    from mlflow.exceptions import MlflowException
+    from mlflow.protos.databricks_pb2 import ENDPOINT_NOT_FOUND
+
+    def _404(*_a, **_k):
+        raise MlflowException(
+            "API request ... 404 != 200", error_code=ENDPOINT_NOT_FOUND
+        )
+
+    monkeypatch.setattr(MlflowClient, "set_registered_model_alias", _404)
+    monkeypatch.setattr(MlflowClient, "get_model_version_by_alias", _404)
+
+
+def test_alias_falls_back_to_tag_when_endpoint_missing(store, no_alias_api):
+    from tinyllm.registry import get_version_by_alias
+
+    mv = register_as_challenger(run_with(store, "model"), REPORT)
+
+    client = MlflowClient()
+    assert client.get_registered_model(MODEL_NAME).tags == {
+        "alias.challenger": str(mv.version)
+    }
+    assert get_version_by_alias(client, MODEL_NAME, CHALLENGER).version == mv.version
+
+
+def test_tag_alias_moves_and_unset_alias_raises(store, no_alias_api):
+    from mlflow.exceptions import MlflowException
+
+    from tinyllm.registry import get_version_by_alias
+
+    register_as_challenger(run_with(store, "model"), REPORT)
+    second = register_as_challenger(run_with(store, "model"), REPORT)
+    client = MlflowClient()
+
+    assert (
+        get_version_by_alias(client, MODEL_NAME, CHALLENGER).version == second.version
+    )
+    with pytest.raises(MlflowException, match="no alias 'champion'"):
+        get_version_by_alias(client, MODEL_NAME, "champion")

@@ -4,16 +4,24 @@ The registry is a shelf of immutable, numbered versions; an alias is a movable
 label. This module only ever sets ``@challenger``. Moving ``@champion`` is a
 separate decision (``tinyllm.promote``, run by the CD workflow) so a model can
 never promote itself.
+
+Azure ML's MLflow endpoint returns 404 for the alias API (verified 2026-09-22),
+so aliases are emulated as registered-model tags ``alias.<name> = <version>``
+there — same semantics (one movable pointer per alias), plain MLflow elsewhere.
+``set_alias`` / ``get_version_by_alias`` are the only two doors; promote.py and
+serving go through them too, so the backend never leaks into callers.
 """
 
 from __future__ import annotations
 
 from mlflow.entities.model_registry import ModelVersion
 from mlflow.exceptions import MlflowException
+from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
 from mlflow.tracking import MlflowClient
 
 MODEL_NAME = "tinyllm-sms-parser"
 CHALLENGER = "challenger"
+CHAMPION = "champion"
 # train.py logs the merged model here only with --log-merged; sweep runs carry adapter/ alone.
 MODEL_ARTIFACT = "model"
 
@@ -42,9 +50,39 @@ def register_as_challenger(
     _ensure_registered_model(client, model_name)
     source = f"{run.info.artifact_uri.rstrip('/')}/{artifact_path}"
     mv = client.create_model_version(model_name, source=source, run_id=run_id)
-    client.set_registered_model_alias(model_name, CHALLENGER, mv.version)
+    set_alias(client, model_name, CHALLENGER, mv.version)
     client.log_dict(run_id, report, "eval_report.json")
     return mv
+
+
+def set_alias(client: MlflowClient, name: str, alias: str, version: str) -> None:
+    """Point ``@alias`` at ``version``; native alias API, or a tag on Azure ML."""
+    try:
+        client.set_registered_model_alias(name, alias, version)
+    except MlflowException as e:
+        if not _alias_api_missing(e):
+            raise
+        client.set_registered_model_tag(name, f"alias.{alias}", str(version))
+
+
+def get_version_by_alias(client: MlflowClient, name: str, alias: str) -> ModelVersion:
+    """Resolve ``@alias``; raises RESOURCE_DOES_NOT_EXIST when it is unset."""
+    try:
+        return client.get_model_version_by_alias(name, alias)
+    except MlflowException as e:
+        if not _alias_api_missing(e):
+            raise
+    version = client.get_registered_model(name).tags.get(f"alias.{alias}")
+    if version is None:
+        raise MlflowException(
+            f"Registered model '{name}' has no alias '{alias}'",
+            error_code=RESOURCE_DOES_NOT_EXIST,
+        )
+    return client.get_model_version(name, version)
+
+
+def _alias_api_missing(e: MlflowException) -> bool:
+    return e.error_code == "ENDPOINT_NOT_FOUND"
 
 
 def _ensure_registered_model(client: MlflowClient, name: str) -> None:
