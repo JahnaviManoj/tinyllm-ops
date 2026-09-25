@@ -1057,3 +1057,62 @@ rows**, schema-valid 56%, scam recall 0.03 — the same number it posted on gate
 the two gates are consistent in difficulty. Era 2's champion is 7.9× above it on the gate, 19×
 on the final, and ∞ on OOD (0% → 44%). Run `gate2-exp_009` in MLflow. README results table
 filled in with every rung; Stage 2 is closed.
+
+## 2026-09-24 — 3.4 pre-registration: the promotion rule (written before promote.py exists)
+
+The registry holds numbered versions; two movable labels sit on them: `@challenger` (set by
+the pipeline's `register_step`, 3.3) and `@champion` (moved only by `tinyllm.promote`, the
+referee run by CD). The rule below is fixed **before** the referee is written or any score is
+read, so no decision can be tuned to a number (rule 8 of D1).
+
+**Inputs.** Gate = `manifests/test_gate_v2.json` (356 rows, sha `0043f34d…`). Champion =
+exp_111 at 229/356 (64.3%). Measured seed noise floor on this gate = **17 rows** (4.8 pt,
+2026-09-12).
+
+**Rule (applied on rows, not percentages).**
+1. **Floor.** `threshold = 0.595` ⇒ floor = ⌈0.595 × 356⌉ = **212 rows** = 229 − 17: "not
+   worse than the champion by more than the noise floor". A challenger under the floor is
+   rejected **even when no champion exists** — otherwise the 20-step smoke model (v3, 73
+   rows) would be crowned by default. The "first model ever → auto-promote" sketch in the
+   tutorial is dropped for that reason.
+2. **Gain.** With an incumbent, the challenger is promoted only if
+   `challenger − champion ≥ 17 rows`. Anything less is inside the seed floor and is treated
+   as a tie; **ties keep the incumbent**. This replaces Era 2's "< 10 rows" tie rule (lesson
+   3 of the Stage-2 close), which was tighter than the measured noise.
+3. **Same exam.** Scores are comparable only on the same gate. Every `eval_report.json`
+   carries `gate_manifest_sha`; the challenger's report (written by the pipeline minutes
+   earlier) is used as-is; the champion is **re-scored on the current gate only when its
+   report's sha differs** from the manifest — the one slow path, and rare.
+4. The alias moves only on `PROMOTED`, only via `registry.set_alias`; `--dry-run` decides and
+   moves nothing. The referee prints one human line and returns the decision as a dict (3.6
+   tests the four verdicts on a throwaway registry).
+
+**The one manual alias move.** exp_111 (run `85f39fed`) is adapter-only in MLflow. The
+merged fp32 model rebuilt locally from that adapter re-scores **229/356 on gate_v2 — bit-for-bit
+the Colab number** (`outputs/exp_111/gate2_rows_with_preds_local_fp32_cpu.json`), so it is
+uploaded as `model/` into the same run, registered, and `@champion` is set on it by hand
+(`scripts/register_champion.py`). This is the only time in the project's life a human moves
+`@champion`; every later move goes through the referee.
+
+**First verdict, live against Azure ML (2026-09-24, no champion registered yet):**
+```
+$ uv run python -m tinyllm.promote --threshold 0.595 --dry-run
+warning: challenger v3's report is not stamped with the current gate (0043f34d); using it as-is
+REJECTED v3: 73 < floor 212  [dry-run: nothing moved]
+```
+The smoke model is refused by the floor alone — the auto-promote trap is closed. The warning is
+expected once: v3 was registered before `gate_manifest_sha` existed; every pipeline run from
+now on stamps its report. Referee verdicts (below floor / no incumbent / inside noise floor /
+beats champion / already champion / stale sha → one re-score) are covered by
+`tests/test_promotion.py` on a throwaway sqlite registry (13 tests incl. registry, ~35 s).
+
+**The manual champion move — executed 2026-09-24.** First attempt died on the azureml-mlflow
+plugin's 300 s upload timeout (`AZUREML_ARTIFACTS_DEFAULT_TIMEOUT`), leaving `model/model.safetensors`
+as a metadata entry with no blob; the script was made per-file, size-checked, 4 h timeout, and the
+second run completed (~2.6 MB/s). Registry now: **`@champion` = v4** (run 85f39fed, fp32 merged
+exp_111, report 229/356 stamped `0043f34d`), **`@challenger` = v3** (smoke, 73/356). Dry-run after
+the move, verified twice:
+```
+REJECTED v3: 73 < floor 212  [dry-run: nothing moved]
+```
+3.4 closed. From here on `@champion` moves only through the referee.

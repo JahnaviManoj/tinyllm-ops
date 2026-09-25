@@ -4,6 +4,7 @@ Steps are thin. Every piece of logic is imported from src/tinyllm so it stays
 testable (and usable on Colab) without zenml.
 """
 
+import json
 import os
 from typing import Annotated
 
@@ -12,12 +13,9 @@ from zenml import pipeline, step
 from tinyllm.config import load_config
 from tinyllm.manifest import fetch_local, fetch_rows
 from tinyllm.model_eval import eval_model, run_behaviors
-from tinyllm.registry import register_as_challenger
+from tinyllm.registry import GATE_MANIFEST, register_as_challenger
 from tinyllm.train import train
 from tinyllm.validate import validate_dataset
-
-# final_v2, OOD and the scam holdout are spent — never in a pipeline.
-GATE_MANIFEST = "manifests/test_gate_v2.json"
 
 
 @step
@@ -66,6 +64,9 @@ def evaluate_step(
         failing and strict_behaviors
     ):  # smoke runs record behaviors but don't enforce them
         raise RuntimeError(f"Behavioral gate FAILED: {failing}")
+    # Fingerprint the exam: promote.py compares scores only across the same gate.
+    with open(GATE_MANIFEST) as f:
+        report["gate_manifest_sha"] = json.load(f)["sha256"]
     return report
 
 

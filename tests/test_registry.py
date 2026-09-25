@@ -1,33 +1,12 @@
 import json
 
-import mlflow
 import pytest
+from conftest import run_with
 from mlflow.tracking import MlflowClient
 
 from tinyllm.registry import CHALLENGER, MODEL_NAME, register_as_challenger
 
 REPORT = {"exact_match": 0.83, "behaviors": {"amount_tracks": 0.9}}
-
-
-@pytest.fixture
-def store(tmp_path):
-    """A throwaway MLflow tracking + registry store, nothing under ./mlruns."""
-    uri = f"sqlite:///{tmp_path}/mlflow.db"
-    mlflow.set_tracking_uri(uri)
-    mlflow.set_registry_uri(uri)
-    exp = mlflow.create_experiment("t", artifact_location=str(tmp_path / "artifacts"))
-    mlflow.set_experiment(experiment_id=exp)
-    return tmp_path
-
-
-def run_with(tmp_path, *artifact_paths):
-    with mlflow.start_run() as run:
-        for p in artifact_paths:
-            d = tmp_path / "src" / p
-            d.mkdir(parents=True, exist_ok=True)
-            (d / "weights.bin").write_bytes(b"x")
-            mlflow.log_artifacts(str(d), artifact_path=p)
-    return run.info.run_id
 
 
 def test_registers_version_and_points_challenger_at_it(store):

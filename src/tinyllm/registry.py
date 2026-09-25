@@ -14,6 +14,10 @@ serving go through them too, so the backend never leaks into callers.
 
 from __future__ import annotations
 
+import json
+import tempfile
+
+import mlflow
 from mlflow.entities.model_registry import ModelVersion
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
@@ -24,6 +28,10 @@ CHALLENGER = "challenger"
 CHAMPION = "champion"
 # train.py logs the merged model here only with --log-merged; sweep runs carry adapter/ alone.
 MODEL_ARTIFACT = "model"
+# The report every registered version carries; promote.py compares two of these.
+REPORT_ARTIFACT = "eval_report.json"
+# The exam. final_v2, OOD and the scam holdout are spent — never in a pipeline.
+GATE_MANIFEST = "manifests/test_gate_v2.json"
 
 
 def register_as_challenger(
@@ -51,8 +59,22 @@ def register_as_challenger(
     source = f"{run.info.artifact_uri.rstrip('/')}/{artifact_path}"
     mv = client.create_model_version(model_name, source=source, run_id=run_id)
     set_alias(client, model_name, CHALLENGER, mv.version)
-    client.log_dict(run_id, report, "eval_report.json")
+    client.log_dict(run_id, report, REPORT_ARTIFACT)
     return mv
+
+
+def get_report(client: MlflowClient, mv: ModelVersion) -> dict:
+    """The ``eval_report.json`` attached to ``mv``'s run: the score sheet the
+    version was registered with (``gate_manifest_sha`` says which exam)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = mlflow.artifacts.download_artifacts(
+            run_id=mv.run_id,
+            artifact_path=REPORT_ARTIFACT,
+            dst_path=tmp,
+            tracking_uri=client.tracking_uri,
+        )
+        with open(path) as f:
+            return json.load(f)
 
 
 def set_alias(client: MlflowClient, name: str, alias: str, version: str) -> None:
