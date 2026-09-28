@@ -1139,10 +1139,26 @@ therefore called directly with fake scores (no model loads) and shown to block w
   to keep it at 20 steps). This is the DoD "deliberately bad run" — a 20-step model is a better
   bad model than a 100× learning rate.
 
-**Pending (Colab, one T4 session):** the blocked-run line and the DAG screenshot →
-`docs/img/zenml_dag.png`. Fill in below when done.
+**The deliberately bad run, blocked (Colab T4, 2026-09-28, ZenML 0.97.0).** Same 20-step smoke
+model, real gate:
+```
+$ python run_pipeline.py --config configs/exp_100_smoke.yaml --smoke --threshold 0.595
+Failed to run step evaluate_step: Eval gate FAILED: 0.205 < 0.595
+Skipping step register_step due to failure in upstream step(s): evaluate_step
+RuntimeError: Pipeline run has failed due to failure in step(s): evaluate_step
+```
+0.205 = 73/356, the same number v3 posted on 2026-09-22 (same seed, same 20 steps), so the gate
+is deterministic and nothing reached the registry. The DAG screenshot (`docs/img/zenml_dag.png`)
+comes from the same run database, opened on the laptop: `zenml login --local` cannot start its
+daemon inside Colab (the service never becomes active), so the VM's
+`~/.config/zenml/local_stores/default_zen_store/zenml.db` is downloaded and served locally
+under a throwaway `ZENML_CONFIG_PATH` with the matching ZenML version (`uvx --from
+"zenml[local,server]==0.97.0" zenml login --local`; the `server` extra is required). The DAG shows
+load_data → validate → train_step (7 min 1 s) → evaluate_step (19 min 31 s) → register_step (5 s)
+on a T4: the gate eval, not training, is the slow step.
 
-```
-# paste the failing line from:  python run_pipeline.py --config configs/exp_100_smoke.yaml --smoke --threshold 0.595
-Eval gate FAILED: <exact> < 0.595
-```
+**Stage 3 definition of done — met.** One command runs data → validate → train → gate → register
+(`run_pipeline.py`), the dashboard shows the DAG (`docs/img/zenml_dag.png`), and a deliberately
+bad run is blocked by the gate with nothing registered. Open items carried forward: delete
+orphan registry versions 1–2 in Azure ML Studio (3.5); challenger is now the newest smoke
+version, rejected by the floor. Next: Stage 4 (quantize & serve).
