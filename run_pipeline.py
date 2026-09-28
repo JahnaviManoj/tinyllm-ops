@@ -4,7 +4,10 @@ Run as a script, never imported into a notebook: ZenML derives its source root
 from the main module's file, and a Jupyter kernel has none.
 
   uv run python run_pipeline.py --config configs/exp_100_smoke.yaml --smoke
-  uv run python run_pipeline.py --config configs/exp_111.yaml --threshold 0.62
+  uv run python run_pipeline.py --config configs/exp_111.yaml --threshold 0.595
+
+  # 3.6 evidence: the 20-step smoke model against the REAL gate — must be blocked
+  uv run python run_pipeline.py --config configs/exp_100_smoke.yaml --smoke --threshold 0.595
 """
 
 import argparse
@@ -23,10 +26,14 @@ def main() -> None:
     parser.add_argument(
         "--smoke",
         action="store_true",
-        help="20 steps, 50 rows, no gates: proves the DAG, never a result",
+        help="20 steps, 50 rows, no gates: proves the DAG, never a result "
+        "(with --threshold: same tiny model, but the real gates — must fail)",
     )
     args = parser.parse_args()
-    if args.smoke:
+    if args.smoke and args.threshold is not None:
+        kw = {**SMOKE, "threshold": args.threshold, "strict_behaviors": True}
+        training_pipeline(config_path=args.config, **kw)
+    elif args.smoke:
         training_pipeline(config_path=args.config, **SMOKE)
     elif args.threshold is None:
         parser.error("--threshold is required for a real run (or pass --smoke)")

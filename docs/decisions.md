@@ -1116,3 +1116,33 @@ the move, verified twice:
 REJECTED v3: 73 < floor 212  [dry-run: nothing moved]
 ```
 3.4 closed. From here on `@champion` moves only through the referee.
+
+## 2026-09-24 — 3.6 Test the gates: laptop half done, Colab evidence pending
+
+**Why.** The gates decide what ships; a bug in a gate ships garbage silently. Each gate is
+therefore called directly with fake scores (no model loads) and shown to block what it must.
+
+**Done on the laptop (`tests/`, 36 tests, ~42 s):**
+- `test_pipeline_gates.py` (5): exact 0.30 → `Eval gate FAILED: 0.300 < 0.595`; exact 0.70 +
+  one behaviour False → `Behavioral gate FAILED: ['amount_tracks']`; same with
+  `strict_behaviors=False` → report returned **with** `behaviors` and `gate_manifest_sha` (the
+  smoke contract); one row with `amount: "45O.OO"` → `Data gate FAILED` (SystemExit →
+  RuntimeError translation); valid rows pass through unchanged. Steps are exercised through
+  ZenML's `.entrypoint`, so the real step bodies run.
+- `test_promotion.py` (8, from 3.4): the five referee verdicts the tutorial lists, plus
+  dry-run-moves-nothing and already-champion.
+- Runtime budget: the suite had crept to ~115 s because every sqlite registry test re-ran
+  MLflow's alembic migrations (2–10 s each, disk-dependent). `tests/conftest.py` now migrates
+  one database per session and copies the file per test → 42 s. No `slow` marker needed.
+- `run_pipeline.py --smoke --threshold X` = the 20-step smoke model against the **real** gate
+  with strict behaviours (the smoke YAML has no step cap of its own, so `--smoke` is required
+  to keep it at 20 steps). This is the DoD "deliberately bad run" — a 20-step model is a better
+  bad model than a 100× learning rate.
+
+**Pending (Colab, one T4 session):** the blocked-run line and the DAG screenshot →
+`docs/img/zenml_dag.png`. Fill in below when done.
+
+```
+# paste the failing line from:  python run_pipeline.py --config configs/exp_100_smoke.yaml --smoke --threshold 0.595
+Eval gate FAILED: <exact> < 0.595
+```
