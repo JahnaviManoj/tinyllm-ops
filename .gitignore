@@ -8,3 +8,6 @@ mlruns/
 mlflow.db
 outputs/
 .zen/
+
+# Stage 4: llama.cpp is cloned here for GGUF conversion; the commit is pinned in serving/Dockerfile
+llama.cpp/

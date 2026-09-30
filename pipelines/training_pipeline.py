@@ -13,6 +13,7 @@ from zenml import pipeline, step
 from tinyllm.config import load_config
 from tinyllm.manifest import fetch_local, fetch_rows
 from tinyllm.model_eval import eval_model, run_behaviors
+from tinyllm.quantize import quantize_to_gguf
 from tinyllm.registry import GATE_MANIFEST, register_as_challenger
 from tinyllm.train import train
 from tinyllm.validate import validate_dataset
@@ -71,8 +72,16 @@ def evaluate_step(
 
 
 @step
-def register_step(run_id: str, report: dict) -> None:
-    register_as_challenger(run_id, report)  # see 3.3
+def quantize_step(merged_dir: str, run_id: str, report: dict) -> dict:
+    """GGUF f16 + quants next to the merged model, attached to the training run
+    as gguf/<quant>.gguf (4.6 downloads them on promotion). `report` is unused:
+    it is the DAG edge that keeps this behind the gates."""
+    return quantize_to_gguf(merged_dir, run_id=run_id)
+
+
+@step
+def register_step(run_id: str, report: dict, gguf: dict | None = None) -> None:
+    register_as_challenger(run_id, report)  # see 3.3; `gguf` is only the DAG edge
 
 
 @pipeline
@@ -82,10 +91,12 @@ def training_pipeline(
     max_steps: int | None = None,
     limit: int | None = None,
     strict_behaviors: bool = True,
+    quantize: bool = True,  # False on a box without a built llama.cpp (LLAMA_CPP_DIR)
 ):
     manifest_path = load_config(config_path).dataset_manifest  # one source of truth
     data = load_data(manifest_path)
     data = validate(data)
     run_id, merged_dir = train_step(data, config_path, max_steps, limit)
     report = evaluate_step(merged_dir, config_path, threshold, strict_behaviors)
-    register_step(run_id, report)
+    gguf = quantize_step(merged_dir, run_id, report) if quantize else None
+    register_step(run_id, report, gguf)

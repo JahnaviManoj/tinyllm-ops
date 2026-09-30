@@ -29,16 +29,24 @@ def main() -> None:
         help="20 steps, 50 rows, no gates: proves the DAG, never a result "
         "(with --threshold: same tiny model, but the real gates — must fail)",
     )
+    parser.add_argument(
+        "--skip-quantize",
+        action="store_true",
+        help="no GGUF step (a box without a built llama.cpp / LLAMA_CPP_DIR)",
+    )
     args = parser.parse_args()
+    quantize = not args.skip_quantize
     if args.smoke and args.threshold is not None:
         kw = {**SMOKE, "threshold": args.threshold, "strict_behaviors": True}
-        training_pipeline(config_path=args.config, **kw)
+        training_pipeline(config_path=args.config, quantize=quantize, **kw)
     elif args.smoke:
-        training_pipeline(config_path=args.config, **SMOKE)
+        training_pipeline(config_path=args.config, quantize=quantize, **SMOKE)
     elif args.threshold is None:
         parser.error("--threshold is required for a real run (or pass --smoke)")
     else:
-        training_pipeline(config_path=args.config, threshold=args.threshold)
+        training_pipeline(
+            config_path=args.config, threshold=args.threshold, quantize=quantize
+        )
 
 
 if __name__ == "__main__":

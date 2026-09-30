@@ -79,6 +79,7 @@ default-groups = ["dev", "local"]
 
 [tool.pytest.ini_options]
 pythonpath = [".", "src"]
+testpaths = ["tests"]  # never collect llama.cpp/ (its own python tests need appium etc.)
 
 [dependency-groups]
 local = [

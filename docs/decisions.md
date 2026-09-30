@@ -1162,3 +1162,50 @@ on a T4: the gate eval, not training, is the slow step.
 bad run is blocked by the gate with nothing registered. Open items carried forward: delete
 orphan registry versions 1–2 in Azure ML Studio (3.5); challenger is now the newest smoke
 version, rejected by the floor. Next: Stage 4 (quantize & serve).
+
+## 2026-09-29 — 4.1 feasibility probe: exp_111 converts to GGUF and runs on CPU (with one trap)
+
+**Verdict: GGUF/llama.cpp is viable for the champion.** llama.cpp master @ `7fee1784646b`
+(2026-09-29, arch `qwen35`, hybrid GatedDeltaNet + attention, `full_attention_interval` 4),
+CPU build on the laptop.
+
+**Trap (cost one failed load).** The first conversion produced a file llama.cpp refused:
+`check_tensor_dims: tensor 'blk.24.attn_norm.weight' not found`. The merged model has 24 layers,
+the GGUF header said 25. Cause: the base checkpoint ships a one-layer multi-token-prediction
+draft head (`mtp.*`, 15 tensors); the PEFT merge saved the text model only (no `mtp.*`) but kept
+`mtp_num_hidden_layers: 1` in config.json, so the converter counted a NextN block whose tensors
+never existed. Fix: `convert_hf_to_gguf.py ... --no-nextn` → `block_count = 24`, 320 tensors.
+Any merged Qwen3.5 checkpoint saved by transformers needs this flag; `quantize.py` hard-codes it.
+
+| file | bytes | size |
+|---|---|---|
+| exp_111-f16.gguf | 1 516 744 224 | 1.52 GB |
+| exp_111-Q8_0.gguf | 811 843 104 | 0.81 GB |
+| exp_111-Q4_K_M.gguf | 529 296 928 | 0.53 GB |
+
+**Smoke (step 3), `llama-completion`, temperature 0, real `chat_prompt()` text for an HDFC UPI
+debit.** Both quants emit the schema JSON and stop at end-of-text:
+`{"is_transaction": true, "txn_type": "debit", "amount": "450.00", "currency": "INR",
+"counterparty": "swiggy@ybl", "account_tail": "1234", "channel": "UPI", "category": "food",
+"is_suspected_scam": false}`. Laptop CPU (8 threads, WSL2): Q8_0 23.5 tok/s generation, 108 tok/s
+prompt; Q4_K_M 31.3 tok/s generation, 159 tok/s prompt; ~75 output tokens ⇒ ~2.4–3.2 s per
+SMS before any serving overhead. Accuracy on the gate is 4.2's job — nothing here says the
+quants are quality-par, only that they run and speak the schema.
+
+**4.1 steps 4–6 (2026-09-30).** `src/tinyllm/quantize.py`: `quantize_to_gguf(merged_dir, out_dir,
+quants, run_id=, llama_cpp_dir=)` runs the two llama.cpp commands via `subprocess` with
+`--no-nextn` hard-coded, reuses existing outputs, and with `run_id` logs `gguf_bytes_<quant>`
+metrics and attaches `gguf/<quant>.gguf` to the training run (the f16 stays local — it is
+reproducible from `model/`). Verified against the real checkout: the wrapper's Q8_0 is
+byte-identical (sha256 `8ac5d042…`) to the hand-made probe file. **Layout decision:** GGUFs live
+at `outputs/<exp>/gguf/<quant>.gguf` (was `outputs/gguf/<exp>-<quant>.gguf`) so local basenames
+equal the MLflow artifact names 4.6 downloads (`gguf/Q8_0.gguf`). `quantize_step(merged_dir,
+run_id, report)` sits after `evaluate_step` in the DAG (the `report` input is the edge that keeps
+it behind the gates); `register_step` takes the returned dict as an unused input so a version is
+registered only after its GGUFs are on the run. `training_pipeline(quantize=False)` /
+`run_pipeline.py --skip-quantize` for a box without a built llama.cpp (Colab today).
+llama.cpp is pinned as `quantize.LLAMA_CPP_COMMIT = 7fee1784646b…` (a checkout at another
+commit prints a warning); `serving/Dockerfile` (4.3) must build that same commit. Tests:
+`tests/test_quantize.py` (6) with a fake llama.cpp whose converter refuses to run without
+`--no-nextn`; pytest now collects only `tests/` (llama.cpp ships its own python tests).
+Suite: 42 tests.
