@@ -8,15 +8,25 @@ prompt here would measure train/serve skew, not the model.
 --chat      chat-template the prompt (Qwen, Era 2). MUST match how the model
             was trained: --chat for exp_1xx, no flag for the Era-1 270M runs.
 --rows-out  per-row correctness JSON for scripts/mcnemar.py (the tie rule).
+--backend   hf (default): load the merged model in-process.
+            llama: POST each prompt to a running llama-server (Stage 4.2) —
+            the GGUF is scored through the same runtime that serves it. The
+            prompt is still built here by chat_prompt(); --tokenizer names the
+            HF dir that owns the template (a GGUF path is not an HF dir).
 
 CLI: uv run python -m tinyllm.model_eval --model outputs/exp_101/merged --chat \
         --data data/generated/test_gate_v2.jsonl --run-name gate2-exp_101 \
         --rows-out outputs/exp_101/gate2_rows.json
+     uv run python -m tinyllm.model_eval --backend llama --url http://127.0.0.1:8081 \
+        --model outputs/exp_111/gguf/Q8_0.gguf --tokenizer outputs/exp_111/merged --chat \
+        --data data/generated/test_gate_v2.jsonl --run-name gguf-Q8_0
 """
 
 import argparse
 import json
 import os
+
+import httpx
 
 from tinyllm.baselines import extract_json
 from tinyllm.eval import evaluate, row_correct
@@ -60,6 +70,49 @@ def predict_merged(
     return outs
 
 
+def predict_llama_server(
+    url: str,
+    sms_list: list[str],
+    chat: bool = False,
+    tokenizer_dir: str | None = None,
+    n_predict: int = 200,
+    timeout: float = 600.0,
+) -> list[str]:
+    """Same prompts and post-processing as predict_merged; the text comes from
+    llama-server's /completion (temperature 0) instead of an in-process model."""
+    if chat and not tokenizer_dir:
+        raise ValueError(
+            "chat=True needs tokenizer_dir (the HF dir owning the template)"
+        )
+    tok = load_tokenizer(tokenizer_dir) if chat else None
+    outs = []
+    with httpx.Client(base_url=url, timeout=timeout) as client:
+        for i, sms in enumerate(sms_list):
+            text_in = chat_prompt(tok, sms) if chat else build_prompt(sms)
+            r = client.post(
+                "/completion",
+                json={
+                    "prompt": text_in,
+                    "temperature": 0,
+                    "n_predict": n_predict,
+                    # No prompt cache: for a recurrent/hybrid model llama-server keeps
+                    # full-state checkpoints per cached prefix and can eat all RAM.
+                    "cache_prompt": False,
+                },
+            )
+            r.raise_for_status()
+            outs.append(extract_json(r.json()["content"]))
+            if (i + 1) % 25 == 0:
+                print(f"  {i + 1}/{len(sms_list)}", flush=True)
+    return outs
+
+
+def load_tokenizer(tokenizer_dir: str):
+    from transformers import AutoTokenizer
+
+    return AutoTokenizer.from_pretrained(tokenizer_dir)
+
+
 def run_behaviors(model_dir: str, chat: bool = False) -> dict[str, bool]:
     """CheckList suite (2.2): one perturbed BASE_SMS per behavior → pass/fail.
 
@@ -87,9 +140,21 @@ def eval_model(
     experiment: str = "tinyllm-finetune",
     chat: bool = False,
     rows_out: str | None = None,
+    backend: str = "hf",
+    server_url: str = "http://127.0.0.1:8081",
+    tokenizer_dir: str | None = None,
 ) -> dict:
-    rows = [json.loads(line) for line in open(data_path)]
-    preds = predict_merged(model_dir, [r["sms"] for r in rows], chat=chat)
+    with open(data_path) as f:
+        rows = [json.loads(line) for line in f]
+    sms_list = [r["sms"] for r in rows]
+    if backend == "hf":
+        preds = predict_merged(model_dir, sms_list, chat=chat)
+    elif backend == "llama":
+        preds = predict_llama_server(
+            server_url, sms_list, chat=chat, tokenizer_dir=tokenizer_dir
+        )
+    else:
+        raise ValueError(f"backend must be 'hf' or 'llama', got {backend!r}")
     report = evaluate(preds, [r["label"] for r in rows])
     if rows_out:  # per-row verdicts — what McNemar pairs up
         per = [
@@ -97,7 +162,8 @@ def eval_model(
             for p, r in zip(preds, rows)
         ]
         os.makedirs(os.path.dirname(rows_out) or ".", exist_ok=True)
-        json.dump(per, open(rows_out, "w"))
+        with open(rows_out, "w") as f:
+            json.dump(per, f)
     if run_name:
         import mlflow
 
@@ -109,6 +175,8 @@ def eval_model(
                     "data": data_path,
                     "n": len(rows),
                     "chat": chat,
+                    "backend": backend,
+                    "server_url": server_url if backend == "llama" else "",
                 }
             )
             for k, v in report.items():
@@ -118,7 +186,9 @@ def eval_model(
                     mlflow.log_metric(k, v)
             if rows_out:
                 mlflow.log_artifact(rows_out)  # survives the Colab VM
-    print(f"== {model_dir} on {data_path} ({len(rows)} rows, chat={chat})")
+    print(
+        f"== {model_dir} on {data_path} ({len(rows)} rows, chat={chat}, backend={backend})"
+    )
     print(json.dumps(report, indent=2))
     return report
 
@@ -144,6 +214,13 @@ def main():
     parser.add_argument(
         "--rows-out", default=None, help="write per-row exact-match JSON (for McNemar)"
     )
+    parser.add_argument("--backend", choices=["hf", "llama"], default="hf")
+    parser.add_argument(
+        "--url", default="http://127.0.0.1:8081", help="llama-server base URL"
+    )
+    parser.add_argument(
+        "--tokenizer", default=None, help="HF dir owning the chat template (llama)"
+    )
     args = parser.parse_args()
     eval_model(
         args.model,
@@ -152,6 +229,9 @@ def main():
         experiment=args.experiment,
         chat=args.chat,
         rows_out=args.rows_out,
+        backend=args.backend,
+        server_url=args.url,
+        tokenizer_dir=args.tokenizer,
     )
 
 

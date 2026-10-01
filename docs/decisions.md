@@ -1209,3 +1209,72 @@ commit prints a warning); `serving/Dockerfile` (4.3) must build that same commit
 `tests/test_quantize.py` (6) with a fake llama.cpp whose converter refuses to run without
 `--no-nextn`; pytest now collects only `tests/` (llama.cpp ships its own python tests).
 Suite: 42 tests.
+
+## 2026-09-30 — 4.2 pre-registration: the quant selection rule (written before any GGUF is scored)
+
+**Rule.** Ship the **smallest** quant whose gate_v2 exact-match is within **2 pt = 7 rows** of the
+f16 GGUF's score (7 = ⌈0.02 × 356⌉). Candidates in size order: Q4_K_M (0.53 GB) → Q8_0
+(0.81 GB) → f16 (1.52 GB). If two candidates are within the 17-row seed floor of each other the
+rule still picks the smaller one that clears the 7-row bar; `scripts/mcnemar.py` on the rows
+files is reported for the chosen pair, for information, not as a second gate.
+
+**Expectation, stated now:** Q8_0 wins. Small models have no spare capacity and lose
+disproportionately to 4-bit rounding; Q4_K_M is not chosen for being smaller.
+
+**Anchor.** The HF merged fp32 model is re-scored the same day on the same machine (expected
+229/356). f16-GGUF vs that anchor isolates conversion/kernel effects from quantization: a gap
+larger than a few rows there is a llama.cpp problem and blocks any quant decision until
+understood. Q8_0 / Q4_K_M are judged against f16-GGUF, not against the HF anchor.
+
+**Harness.** The same `eval_model` scores every rung; only the text generator changes
+(`backend="llama"`: POST `chat_prompt()` text to `llama-server /completion`, temperature 0,
+`n_predict` 200, same JSON extraction). Runs `gguf-f16`, `gguf-Q8_0`, `gguf-Q4_K_M`,
+`gate2-exp_111-hf-anchor` in `tinyllm-finetune`, each with a rows file.
+
+**Not done, by design:** no final_v2 pass for the shipped quant — final_v2 was spent at the
+Stage-2 close. The quant's headline is a gate_v2 number and the README will say so.
+
+## 2026-10-01 — 4.2 result: Q8_0 ships; Q4_K_M fails the pre-registered bar
+
+Scored on gate_v2 (356 rows) through `llama-server` with the same harness (`eval_model`,
+`backend="llama"`, temperature 0, `chat_prompt()` text), laptop CPU (8 threads, WSL2),
+llama.cpp `7fee178464`. MLflow runs `gguf-f16` (5a95aec5), `gguf-Q8_0` (615d29c2),
+`gguf-Q4_K_M` (5de22b2d), each with a rows file.
+
+| file | rows | exact | vs f16 | size | gen tok/s | wall |
+|---|---|---|---|---|---|---|
+| f16 GGUF | **229** | 64.3% | — | 1.52 GB | 13.7 | 29 min |
+| **Q8_0** | **227** | 63.8% | −2 | 0.81 GB | 23.1 | 18 min |
+| Q4_K_M | 209 | 58.7% | −20 | 0.53 GB | 33.6 | 12 min |
+
+**Conversion is lossless on this gate.** f16-GGUF vs the HF fp32 model's own rows file
+(2026-09-13, same machine, CPU): A-only 0, B-only 0 — not merely the same count, the same 356
+verdicts row for row. llama.cpp's Qwen3.5 (GatedDeltaNet + attention) kernels reproduce the
+PyTorch model exactly at 16-bit. **The same-day HF fp32 anchor re-run is skipped (owner's
+decision, 2026-10-01):** it would cost ~2 CPU-hours (the 2026-09-13 local run took ≤ 2 h 9 min)
+to re-confirm a number the f16 GGUF already reproduces verdict for verdict, and the eval code
+has not changed between the two dates except for the added backend. The 2026-09-13 fp32 CPU
+rows file (`outputs/exp_111/gate2_rows_with_preds_local_fp32_cpu.json`, 229/356) stands as
+the anchor. Deviation from the tutorial's "re-score the HF model the same day" step, recorded.
+
+**Rule applied (bar = 7 rows below f16 = 222).** Q4_K_M at 209 is 20 rows below f16 — more
+than the seed floor (17), McNemar vs Q8_0: 27 vs 9 discordant rows, p ≈ 0.004, a real loss —
+so it is out despite being the smallest. Q8_0 at 227 is 2 rows below f16 (3 vs 1 discordant,
+p ≈ 0.625, a tie): the smallest quant inside the bar. **Ship Q8_0**, exactly as predicted on
+2026-09-30: an 0.8B model has no spare capacity for 4-bit rounding (5.6 pt lost) while 8-bit
+costs nothing measurable. Q8_0 = half the f16 bytes, 1.7× its generation speed.
+
+**Headline for the served model: 63.8% (227/356) on gate_v2.** No final_v2 number exists
+for it and none will — final_v2 was spent on the fp32 champion at the Stage-2 close; the README
+says so.
+
+**Two llama-server traps, both memory, both cost a restart:**
+1. `cache_prompt: true` on a recurrent/hybrid model → the server snapshots the full
+   recurrent state per cached prefix (`--ctx-checkpoints`, default 8): RSS 3 → 6.4 GB, swap
+   full, 3 s/row → 15 s/row. Fix: `cache_prompt: false` in the harness + `--ctx-checkpoints 0`.
+2. Even then RSS grew ~22 MB per request: `llama-server --cache-ram` (default **8192 MiB**)
+   parks every finished request's state in a host-RAM prompt cache regardless of the request
+   flag. Fix: `--cache-ram 0`. With both, RSS sits at the mmapped file size (1.56 GB for f16)
+   for the whole run. `scripts/score_ggufs.py` carries both flags; serving (4.3) must too.
+   Also lost one run to the Claude Code session ending (background jobs die with it) and ~10
+   min to the laptop throttling (full CPU, 4× slower requests, recovered on its own).

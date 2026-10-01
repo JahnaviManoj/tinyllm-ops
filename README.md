@@ -49,13 +49,16 @@ teacher, with a frozen final set touched exactly once for the headline number:
 | Gemma 3 270M fine-tuned (Era-1 champion, template data) | 8.1% | CPU |
 | Qwen3.5-2B fine-tuned (5 runs: 63.5–69.9%, tie-break loser) | 64.9% | CPU |
 | **Qwen3.5-0.8B fine-tuned (this repo's champion, exp_111)** | **64.3%** | **CPU / on-device, ~$0/mo** |
+| ↳ **the same model as served: Q8_0 GGUF on `llama-server`** | **63.8%** (227/356; f16 GGUF = 229, Q4_K_M = 209, rejected) | **0.81 GB, 23 tok/s on a laptop CPU** |
 | Gemma 4 26B few-shot, pre-registered prompt (~30× bigger) | 27.0% | API $$ |
 | Gemma 4 26B few-shot, told the output schema² | 72.2% | API $$ |
 
 **Once-only sets, spent exactly once on the champion:** frozen final **59.9%** (106/177,
 ±7 pt) · out-of-distribution real SMS **44%** (11/25; the Era-1 champion scored 0% on the same
 set) · real-scam holdout **91.7%** (55 of 60 real smishing texts flagged, none mistaken for a
-transaction).
+transaction). The served Q8_0 quant is reported on the gate set only — the final set was spent
+on the fp32 champion and is not reused (selection rule pre-registered 2026-09-30:
+smallest quant within 7 rows of f16; 4-bit lost 20 rows, 8-bit lost 2).
 
 ¹ Strict metric: output must parse AND validate against the schema with *every* field
 exactly right. The gate is 356 SMS written by a *different* teacher model than the training
