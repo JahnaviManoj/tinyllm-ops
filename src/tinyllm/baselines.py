@@ -27,6 +27,7 @@ import argparse
 import json
 
 from tinyllm.eval import evaluate
+from tinyllm.extract import extract_json  # noqa: F401  (re-export: older callers import it here)
 
 BIG_MODEL_ID = "gemma-4-26b-a4b-it"  # via Gemini API; NOT the test-set teacher family
 
@@ -88,21 +89,6 @@ def few_shot_block(train_path: str) -> str:
         f"SMS: {r['sms']}\nJSON: {json.dumps(r['label'], ensure_ascii=False)}\n\n"
         for r in picked
     )
-
-
-def extract_json(text: str) -> str:
-    """First balanced {...} block — models love fences and preambles; being
-    unable to find ANY object still counts as a parse failure downstream."""
-    start = text.find("{")
-    if start < 0:
-        return text.strip()
-    depth = 0
-    for i, ch in enumerate(text[start:], start):
-        depth += ch == "{"
-        depth -= ch == "}"
-        if depth == 0:
-            return text[start : i + 1]
-    return text[start:].strip()
 
 
 def predict_local(

@@ -1,0 +1,145 @@
+annotated-doc==0.0.5
+    # via
+    #   fastapi
+    #   typer
+annotated-types==0.8.0
+    # via pydantic
+anyio==4.15.0
+    # via
+    #   httpx
+    #   starlette
+certifi==2026.7.22
+    # via
+    #   httpcore
+    #   httpx
+click==8.2.1
+    # via uvicorn
+cloudpickle==3.1.2
+    # via joblib
+colorama==0.4.6 ; sys_platform == 'win32'
+    # via
+    #   click
+    #   tqdm
+    #   typer
+fastapi==0.141.1
+    # via tinyllm-ops
+filelock==3.32.5
+    # via huggingface-hub
+fsspec==2026.6.0
+    # via huggingface-hub
+h11==0.16.0
+    # via
+    #   httpcore
+    #   uvicorn
+hf-xet==1.6.0 ; platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
+    # via huggingface-hub
+httpcore==1.0.9
+    # via httpx
+httpx==0.28.1
+    # via
+    #   huggingface-hub
+    #   tinyllm-ops
+huggingface-hub==1.16.1
+    # via
+    #   tokenizers
+    #   transformers
+idna==3.19
+    # via
+    #   anyio
+    #   httpx
+jinja2==3.1.6
+    # via tinyllm-ops
+joblib==1.6.0
+    # via scikit-learn
+markdown-it-py==4.2.0
+    # via rich
+markupsafe==3.0.3
+    # via jinja2
+mdurl==0.1.2
+    # via markdown-it-py
+narwhals==2.25.0
+    # via scikit-learn
+numpy==2.4.6 ; python_full_version < '3.12'
+    # via
+    #   scikit-learn
+    #   scipy
+    #   tinyllm-ops
+    #   transformers
+numpy==2.5.2 ; python_full_version >= '3.12'
+    # via
+    #   scikit-learn
+    #   scipy
+    #   tinyllm-ops
+    #   transformers
+packaging==26.3
+    # via
+    #   huggingface-hub
+    #   transformers
+pydantic==2.12.5
+    # via
+    #   fastapi
+    #   pydantic-settings
+    #   tinyllm-ops
+pydantic-core==2.41.5
+    # via pydantic
+pydantic-settings==2.15.0
+    # via tinyllm-ops
+pygments==2.21.0
+    # via rich
+python-dotenv==1.2.3
+    # via
+    #   pydantic-settings
+    #   tinyllm-ops
+pyyaml==6.0.3
+    # via
+    #   huggingface-hub
+    #   tinyllm-ops
+    #   transformers
+regex==2026.9.3
+    # via transformers
+rich==15.0.0
+    # via typer
+safetensors==0.8.0
+    # via transformers
+scikit-learn==1.9.0
+    # via tinyllm-ops
+scipy==1.17.1 ; python_full_version < '3.12'
+    # via scikit-learn
+scipy==1.18.1 ; python_full_version >= '3.12'
+    # via scikit-learn
+shellingham==1.5.4
+    # via typer
+starlette==1.6.0
+    # via fastapi
+threadpoolctl==3.6.0
+    # via scikit-learn
+tokenizers==0.23.2
+    # via
+    #   tinyllm-ops
+    #   transformers
+tqdm==4.70.0
+    # via
+    #   huggingface-hub
+    #   transformers
+transformers==5.16.1
+    # via tinyllm-ops
+typer==0.27.2
+    # via
+    #   huggingface-hub
+    #   transformers
+typing-extensions==4.16.0
+    # via
+    #   anyio
+    #   fastapi
+    #   huggingface-hub
+    #   pydantic
+    #   pydantic-core
+    #   starlette
+    #   typing-inspection
+typing-inspection==0.4.4
+    # via
+    #   fastapi
+    #   pydantic
+    #   pydantic-settings
+uvicorn==0.52.4
+    # via tinyllm-ops

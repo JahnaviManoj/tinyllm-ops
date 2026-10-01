@@ -4591,6 +4591,7 @@ all = [
     { name = "fastapi" },
     { name = "google-genai" },
     { name = "httpx" },
+    { name = "jinja2" },
     { name = "mlflow" },
     { name = "peft" },
     { name = "tokenizers" },
@@ -4631,6 +4632,7 @@ pipelines = [
 serve = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "jinja2" },
     { name = "tokenizers" },
     { name = "transformers" },
     { name = "uvicorn" },
@@ -4674,6 +4676,7 @@ requires-dist = [
     { name = "google-genai", marker = "extra == 'gen'", specifier = ">=2.14.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'serve'", specifier = ">=0.28.1" },
+    { name = "jinja2", marker = "extra == 'serve'", specifier = ">=3.1" },
     { name = "mlflow", marker = "extra == 'train'", specifier = ">=3.13.0" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "peft", marker = "extra == 'train'", specifier = ">=0.19.1" },

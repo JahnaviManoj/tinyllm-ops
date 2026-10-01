@@ -28,8 +28,8 @@ import os
 
 import httpx
 
-from tinyllm.baselines import extract_json
 from tinyllm.eval import evaluate, row_correct
+from tinyllm.extract import extract_json
 from tinyllm.prompt import build_prompt, chat_prompt
 
 

@@ -1,0 +1,8 @@
+# Only serving/, src/tinyllm and pyproject reach the build context; everything heavy stays out.
+*
+!serving/
+!src/tinyllm/
+!pyproject.toml
+!README.md
+serving/__pycache__/
+src/tinyllm/__pycache__/

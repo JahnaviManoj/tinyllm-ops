@@ -35,7 +35,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, ValidationError
 
 from serving.prompting import render
-from tinyllm.baselines import extract_json
+from tinyllm.extract import extract_json
 from tinyllm.rulebook import apply_rulebook
 from tinyllm.schema import ExpenseRecord
 

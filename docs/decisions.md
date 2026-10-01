@@ -1330,3 +1330,48 @@ the quant choice: every file gains ~15, and Q4_K_M + rulebook (227) only reaches
 
 **Served headline, restated:** Q8_0 GGUF via llama-server, grammar on, rulebook on: 242/356 =
 68.0% on gate_v2, of which 227 is the model and 15 the guard. No final-set number by design.
+
+## 2026-10-01 — 4.5 built: the serving image (919 MB, no model inside)
+
+**Docker runs natively inside WSL** (docker-ce 29.5.3, `sudo dockerd &` — no systemd, no Docker
+Desktop; owner's choice). `serving/Dockerfile` is two-stage: a `debian:bookworm-slim` builder
+clones llama.cpp at `LLAMA_CPP_COMMIT` (7fee178464, the commit every GGUF was scored with) and
+compiles only `llama-server` with `-DGGML_NATIVE=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON
+-DBUILD_SHARED_LIBS=OFF -DLLAMA_OPENSSL=OFF`; the runtime is `python:3.11-slim` + `libgomp1` +
+`curl`, the 18 MB binary, `serving/requirements.txt` (exported from the lockfile with
+`--extra serve --no-default-groups`), `src/tinyllm` + `serving/` on `PYTHONPATH`, and the
+tokenizer baked under `HF_HOME=/app/hf` with `HF_HUB_OFFLINE=1` set afterwards. The bake step
+renders a chat template, so a missing template dependency fails the **build**, not the first
+request. `.dockerignore` whitelists only those paths (outputs/, llama.cpp/, data/ never enter the
+context). `RULEBOOK=1` is the image default (4.4 decision).
+
+`serving/start.sh`: model at `MODEL_PATH` (default `/models/model.gguf`) or download from
+`MODEL_URL` (+ `MODEL_SHA256` check, 4.6); `llama-server … -np 1 --cache-ram 0 --ctx-checkpoints 0`
+in the background; wait for `/health` (120 s cap, dies if the server dies); `exec uvicorn`.
+Two processes in one container on purpose: the gateway and its model are one unit.
+
+**Trap found by the first run:** the gateway returned 500 inside the container —
+`apply_chat_template requires jinja2`. On the laptop jinja2 is only present as a transitive
+dependency of other extras. Added to the `serve` extra; the build-time render now guards it.
+
+**Measured (laptop, 8 threads, Q8_0 mounted read-only):**
+
+| metric | value |
+|---|---|
+| image size | **919 MB** (budget: < 1 GB without the model) |
+| of which: pip layer | 503 MB — transformers 117, scipy 143, sklearn 50, numpy 73 |
+| `docker run` → gateway `/healthz` | 2.9 s |
+| `docker run` → first 200 from `/parse` | **9.0 s** (= the cold-start floor; ACA adds image pull) |
+| warm `/parse`, 8 threads | 3.2 s |
+| container RSS, serving | 417 MiB |
+
+Parses through the container: the HDFC UPI debit → the correct record; a Zomato card spend →
+`food`, `card`, tail 4412 (the model got the category itself, rulebook not applied).
+
+**Trim available if the image budget ever bites:** scipy + scikit-learn (~190 MB) are in the
+image only because they are core dependencies for `tinyllm.eval`; the gateway's import chain
+(`extract_json` moved to the dependency-free `tinyllm.extract`) does not touch them. Splitting
+them into an `eval` extra would cut the image to ~730 MB. Not done: 919 < 1000.
+
+**Still 4.5-adjacent, deferred:** the binary's portability (no AVX-512) is asserted by the build
+flags; it is *verified* the first time the image runs on a non-laptop CPU (Stage 5).

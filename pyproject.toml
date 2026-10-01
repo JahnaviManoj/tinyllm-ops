@@ -69,6 +69,7 @@ serve = [
     "httpx>=0.28.1",
     "transformers>=5.14.1",
     "tokenizers>=0.21",
+    "jinja2>=3.1",  # apply_chat_template renders the template with jinja2
 ]
 all = [
     "tinyllm-ops[train,gen,azure,blob,tracking,pipelines,serve]",
