@@ -72,6 +72,11 @@ def main() -> None:
     ap.add_argument("--threads", type=int, default=os.cpu_count())
     ap.add_argument("--data", default=None, help="default: gate_v2 by manifest")
     ap.add_argument("--no-mlflow", action="store_true")
+    ap.add_argument(
+        "--constrained",
+        action="store_true",
+        help="grammar-constrained decoding (as served); run names get a -grammar suffix",
+    )
     args = ap.parse_args()
 
     llama = Path(os.environ.get("LLAMA_CPP_DIR", "llama.cpp"))
@@ -82,12 +87,13 @@ def main() -> None:
     with open(data) as f:
         n = sum(1 for _ in f)
     url = f"http://127.0.0.1:{args.port}"
-    summary_path = gguf_dir / "gate2_scores.json"
+    tag = "-grammar" if args.constrained else ""
+    summary_path = gguf_dir / f"gate2_scores{tag}.json"
     summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
 
     for q in args.quants:
         gguf = gguf_dir / f"{q}.gguf"
-        log = gguf_dir / f"server_{q}.log"
+        log = gguf_dir / f"server_{q}{tag}.log"
         print(f"\n=== {q}: {gguf} ({gguf.stat().st_size / 1e9:.2f} GB) ===", flush=True)
         proc = subprocess.Popen(
             [
@@ -120,12 +126,13 @@ def main() -> None:
             report = eval_model(
                 str(gguf),
                 data,
-                run_name=None if args.no_mlflow else f"gguf-{q}",
+                run_name=None if args.no_mlflow else f"gguf-{q}{tag}",
                 chat=True,
-                rows_out=str(gguf_dir / f"gate2_rows_{q}.json"),
+                rows_out=str(gguf_dir / f"gate2_rows_{q}{tag}.json"),
                 backend="llama",
                 server_url=url,
                 tokenizer_dir=tokenizer_dir,
+                constrained=args.constrained,
             )
             wall = time.time() - t0
         finally:

@@ -1278,3 +1278,55 @@ says so.
    for the whole run. `scripts/score_ggufs.py` carries both flags; serving (4.3) must too.
    Also lost one run to the Claude Code session ending (background jobs die with it) and ~10
    min to the laptop throttling (full CPU, 4× slower requests, recovered on its own).
+
+## 2026-10-01 — 4.3/4.4 built: the gateway, and two serving-time measurements
+
+**Built.** `serving/app.py` (FastAPI): `POST /parse {"sms"}` → API key + 30/min/key quota (as a
+dependency, so a bad key is a 401 even on a garbage body) → `serving/prompting.render()` →
+`llama-server /completion` with `json_schema = ExpenseRecord.model_json_schema()`, temperature 0,
+`n_predict` 200, `cache_prompt` **false** (the 4.2 trap) → `extract_json` → Pydantic → optional
+rulebook (`RULEBOOK=1`) → record, with `X-Latency-Ms` / `X-Rulebook-Applied` headers; 422 with the
+raw text on a schema failure, 502 on an upstream error, `/healthz`, `/stats`, optional JSONL
+request log (`REQUEST_LOG`, feeds Stage 6). Keys and quota are in-memory (reset on restart, not
+shared across replicas) — documented, not fixed. `serving/prompting.py` loads the tokenizer once
+(env `TOKENIZER`, default the champion's pinned base) and renders `chat_prompt()`;
+`tests/test_serving_prompt.py` asserts byte-equality with the training prompt for three SMS
+(incl. `\n` and `₹`). `tests/test_gateway.py` (9, model faked): 401 / 429 / 422 body / 422 model
+output / 502 backend down / happy path / rulebook / health+stats / key-before-body. New
+`serve` extra in pyproject. Suite: 60 tests.
+
+**Local proof (laptop, Q8_0 behind the gateway):** an HDFC UPI debit → the correct record
+(food, swiggy@ybl, 450.00, UPI, tail 1234); a KYC phishing text → `is_transaction: false,
+is_suspected_scam: true`; wrong key → 401. First request 7.9 s (tokenizer load), then ~4.4 s
+mean on 8 laptop threads, unoptimised.
+
+**Measurement 1 — grammar-constrained vs unconstrained (Q8_0, gate_v2, run `gguf-Q8_0-grammar`):**
+
+| decoding | rows | exact | parse rate | gen tok/s |
+|---|---|---|---|---|
+| unconstrained (4.2) | 227 | 63.8% | 99.7% | 23.1 |
+| grammar (as served) | 227 | 63.8% | **100%** | 18.9 |
+
+McNemar: 0 rows differ in either direction — the grammar changed no verdict. It made the one
+unparseable row parse (still wrong) and costs ~18% generation speed. **Serve with the grammar:**
+invalid JSON becomes impossible by construction at zero accuracy cost; the offline headline
+stays the unconstrained number because the two are identical anyway.
+
+**Measurement 2 — rulebook guard on/off (offline from the rows files, `scripts/rulebook_delta.py`):**
+
+| file | as-is | + rulebook | fired / fixed / broke | category acc |
+|---|---|---|---|---|
+| f16 | 229 | 244 | 16 / 15 / 0 | 85.7 → 90.2% |
+| **Q8_0** | **227** | **242** | 16 / 15 / 0 | 85.4 → 89.9% |
+| Q8_0 + grammar | 227 | 242 | 16 / 15 / 0 | 85.4 → 89.9% |
+| Q4_K_M | 209 | 227 | 19 / 18 / 0 | 81.5 → 86.8% |
+
+Fifteen rows is the counterparty→category convention gap diagnosed in the Stage-2 post-mortem
+(the merchant is named correctly, the category is not), recovered deterministically at serving
+time. **Decision:** the gateway ships with `RULEBOOK=1` as the default (fixes 15, breaks 0,
+deterministic, fully testable); the flag stays, and the two numbers are always reported as
+separate columns — **the model's number is 227, the served system's is 242**. It does not change
+the quant choice: every file gains ~15, and Q4_K_M + rulebook (227) only reaches Q8_0 without it.
+
+**Served headline, restated:** Q8_0 GGUF via llama-server, grammar on, rulebook on: 242/356 =
+68.0% on gate_v2, of which 227 is the model and 15 the guard. No final-set number by design.

@@ -58,7 +58,10 @@ teacher, with a frozen final set touched exactly once for the headline number:
 set) · real-scam holdout **91.7%** (55 of 60 real smishing texts flagged, none mistaken for a
 transaction). The served Q8_0 quant is reported on the gate set only — the final set was spent
 on the fp32 champion and is not reused (selection rule pre-registered 2026-09-30:
-smallest quant within 7 rows of f16; 4-bit lost 20 rows, 8-bit lost 2).
+smallest quant within 7 rows of f16; 4-bit lost 20 rows, 8-bit lost 2). Behind the gateway the
+same model is decoded under a JSON grammar (no verdict changes, parse rate 100%) and a
+deterministic merchant→category rulebook, which fixes 15 gate rows and breaks none: the model's
+number is 227/356, the served system's is 242/356 (68.0%), always reported as two columns.
 
 ¹ Strict metric: output must parse AND validate against the schema with *every* field
 exactly right. The gate is 356 SMS written by a *different* teacher model than the training

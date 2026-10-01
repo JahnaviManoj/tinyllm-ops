@@ -77,14 +77,22 @@ def predict_llama_server(
     tokenizer_dir: str | None = None,
     n_predict: int = 200,
     timeout: float = 600.0,
+    constrained: bool = False,
 ) -> list[str]:
     """Same prompts and post-processing as predict_merged; the text comes from
-    llama-server's /completion (temperature 0) instead of an in-process model."""
+    llama-server's /completion (temperature 0) instead of an in-process model.
+    constrained=True adds the ExpenseRecord JSON schema as a grammar — what the
+    gateway serves (4.4); the offline numbers stay unconstrained by default."""
     if chat and not tokenizer_dir:
         raise ValueError(
             "chat=True needs tokenizer_dir (the HF dir owning the template)"
         )
     tok = load_tokenizer(tokenizer_dir) if chat else None
+    extra = {}
+    if constrained:
+        from tinyllm.schema import ExpenseRecord
+
+        extra["json_schema"] = ExpenseRecord.model_json_schema()
     outs = []
     with httpx.Client(base_url=url, timeout=timeout) as client:
         for i, sms in enumerate(sms_list):
@@ -98,6 +106,7 @@ def predict_llama_server(
                     # No prompt cache: for a recurrent/hybrid model llama-server keeps
                     # full-state checkpoints per cached prefix and can eat all RAM.
                     "cache_prompt": False,
+                    **extra,
                 },
             )
             r.raise_for_status()
@@ -143,6 +152,7 @@ def eval_model(
     backend: str = "hf",
     server_url: str = "http://127.0.0.1:8081",
     tokenizer_dir: str | None = None,
+    constrained: bool = False,
 ) -> dict:
     with open(data_path) as f:
         rows = [json.loads(line) for line in f]
@@ -151,7 +161,11 @@ def eval_model(
         preds = predict_merged(model_dir, sms_list, chat=chat)
     elif backend == "llama":
         preds = predict_llama_server(
-            server_url, sms_list, chat=chat, tokenizer_dir=tokenizer_dir
+            server_url,
+            sms_list,
+            chat=chat,
+            tokenizer_dir=tokenizer_dir,
+            constrained=constrained,
         )
     else:
         raise ValueError(f"backend must be 'hf' or 'llama', got {backend!r}")
@@ -177,6 +191,7 @@ def eval_model(
                     "chat": chat,
                     "backend": backend,
                     "server_url": server_url if backend == "llama" else "",
+                    "constrained": constrained,
                 }
             )
             for k, v in report.items():
@@ -221,6 +236,11 @@ def main():
     parser.add_argument(
         "--tokenizer", default=None, help="HF dir owning the chat template (llama)"
     )
+    parser.add_argument(
+        "--constrained",
+        action="store_true",
+        help="llama backend: grammar-constrain to the ExpenseRecord schema (as served)",
+    )
     args = parser.parse_args()
     eval_model(
         args.model,
@@ -232,6 +252,7 @@ def main():
         backend=args.backend,
         server_url=args.url,
         tokenizer_dir=args.tokenizer,
+        constrained=args.constrained,
     )
 
 
