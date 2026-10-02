@@ -40,7 +40,11 @@ def gateway(monkeypatch):
     monkeypatch.setattr(app_module, "render", lambda sms: f"<prompt>{sms}")
 
     async def fake_llama(prompt):
-        return app_module.FAKE_REPLY
+        return app_module.FAKE_REPLY, {
+            "predicted_n": 75,
+            "predicted_per_second": 20.5,
+            "prompt_n": 78,
+        }
 
     app_module.FAKE_REPLY = GOOD
     monkeypatch.setattr(app_module, "call_llama", fake_llama)
@@ -70,6 +74,7 @@ def test_happy_path_returns_a_schema_valid_record(gateway):
     assert rec.amount == "450.00" and rec.channel.value == "UPI"
     assert r.headers["x-rulebook-applied"] == "false"
     assert int(r.headers["x-latency-ms"]) >= 0
+    assert r.headers["x-gen-tokens"] == "75" and r.headers["x-gen-tok-per-s"] == "20.5"
 
 
 def test_rate_limit_is_429_after_the_quota(gateway):
@@ -125,7 +130,7 @@ def test_rulebook_flag_corrects_category_and_says_so(monkeypatch, gateway):
     monkeypatch.setattr(mod, "render", lambda sms: sms)
 
     async def fake(prompt):
-        return GOOD  # counterparty swiggy@ybl, category "other"
+        return GOOD, {}  # counterparty swiggy@ybl, category "other"
 
     monkeypatch.setattr(mod, "call_llama", fake)
     r = client(mod).post("/parse", json={"sms": "x"}, headers={"x-api-key": KEY})

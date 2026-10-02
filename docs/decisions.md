@@ -1375,3 +1375,80 @@ them into an `eval` extra would cut the image to ~730 MB. Not done: 919 < 1000.
 
 **Still 4.5-adjacent, deferred:** the binary's portability (no AVX-512) is asserted by the build
 flags; it is *verified* the first time the image runs on a non-laptop CPU (Stage 5).
+
+## 2026-10-01 — 4.6 built: serving gets the model from one fixed Blob address, never from MLflow
+
+**Design.** On promotion the champion's served quant is copied to `artifacts/champion/model.gguf`
+(same container as the data manifests) with `artifacts/champion/model.json` beside it
+(`model_version`, `run_id`, `quant`, `sha256`, `bytes`, `published_at`). Whatever sits at that
+address is the champion. The container downloads it at start through a read-only SAS URL
+(`MODEL_URL`, 1-year expiry, a secret in the environment), checks `MODEL_SHA256`, and logs
+`model.json` (`MODEL_INFO_URL`) so the boot log says which version is serving. **Serving never
+talks to MLflow**: the registry stays metadata-only, and an MLflow outage cannot stop a
+container from booting.
+
+**Code.** `registry.publish_champion_gguf(mv, quant)` downloads `gguf/<quant>.gguf` from the
+version's run, streams it to the two blobs (overwrite), returns the record. `registry.unset_alias`
+for the rollback. `promote.promote_if_better` is now a two-step transaction: `set_alias(champion)`
+→ `publish_champion_gguf`; on any failure the alias is moved back to the previous champion (or
+unset when there was none), the decision line becomes `ROLLED BACK …`, and the error propagates
+so CD fails loudly. Registry and production can therefore never disagree. The 3.4 `TODO(4.6)` is
+closed. Tests: `test_registry.py` (+2: both blobs written with the right record; no GGUF on the
+run → nothing touches Blob), `test_promotion.py` (+4: publish called with the served quant;
+failed publish → alias back to the old champion; failed publish with no old champion → alias
+unset; dry-run never publishes; the fake publish is autouse). Suite: 67.
+
+**The one-off for v4 (`scripts/publish_champion.py`, executed 2026-10-01).** v4 predates the
+DAG's quantize step, so its run had no `gguf/`; the script attached the local Q8_0 + Q4_K_M via
+`quantize_to_gguf(run_id=…)` (which now needs no llama.cpp when the files exist, and sets the
+azureml 4-hour upload timeout itself), published Q8_0, and wrote `MODEL_URL` / `MODEL_INFO_URL` /
+`MODEL_SHA256` to `.env` (gitignored; values quoted — SAS URLs contain `&` and an unquoted
+`.env` sourced by bash forks on every one of them; found the hard way). Published sha
+`8ac5d042a21d…` = the local Q8_0 = the file scored in 4.2.
+
+**Proof, no volume mount:** `docker run -e MODEL_URL -e MODEL_INFO_URL -e MODEL_SHA256` →
+download 0.81 GB from Blob, sha verified, `model.json` logged (v4, Q8_0), llama-server healthy,
+gateway healthy at **46 s** (vs 2.9 s with the file mounted → ~43 s is the download on this
+connection), first parse correct at 6.6 s. That 46 s is the realistic cold start for a
+scale-to-zero container without a warm volume; Stage 5 decides whether to pre-bake, cache on a
+volume, or accept it.
+
+## 2026-10-01 — 4.7 done: integration test green, latency measured — Stage 4 closed
+
+**Tests.** Gateway unit tests (9, model faked) existed from 4.4. New: `tests/test_integration.py`
+(marker `integration`, excluded by default via `addopts`; `--url` / `--api-key` options in
+`conftest.py`): 20 gate_v2 SMS through the real container → every answer a 200 that validates
+against `ExpenseRecord`, plus a wrong-key 401 against the real service. **DoD run:** container
+at `--cpus=2 -e LLAMA_THREADS=2` with the Q8_0 mounted → `pytest -m integration --url …` →
+2 passed in 38 s (20 SMS ≈ 1.9 s each; gate rows are mostly short / non-transaction outputs).
+The gateway now forwards llama-server's own timings as `X-Gen-Tokens`, `X-Gen-Tok-Per-S`,
+`X-Prompt-Tokens` (what Stage 6 charts; what the probe reads). Suite: 67 unit + 2 integration.
+
+**Latency (`monitoring/latency_probe.py`: 5 warm-ups, 50 timed `/parse` calls, one 134-char
+HDFC UPI debit that yields a full 78-token record — the slow case, on purpose):**
+
+| container | p50 | p95 | max | gen tok/s | RSS |
+|---|---|---|---|---|---|
+| `--cpus=2`, 2 threads (cloud-box stand-in) | **5.11 s** | **5.33 s** | 5.68 s | 19.1 | 478 MiB |
+| 8 threads, all laptop cores | 5.06 s | 6.04 s | 7.84 s | 18.6 | — |
+
+Thread count does not matter: generation is memory-bandwidth-bound at ~19 tok/s on this
+machine (the grammar costs ~18% on top of 4.2's 23.1), so a full record = 78 tokens ≈ 4.1 s of
+decode + prompt + overhead ≈ 5 s. Short SMS and non-transactions return in ~2 s.
+
+**The pre-committed escape hatch (V2 Stage-4 delta: warm p95 on 2 vCPU > ~4 s) is tripped:
+5.33 s.** Its prescribed levers are both unavailable: ship the 0.8B (it already is the
+champion); Q4_K_M (forbidden by the 4.2 rule: −20 rows); `-c 512` (context size does not
+change decode speed at these lengths). **Decision: ship as measured** — ~5 s p95 for a full
+transaction record, ~2 s typical — and carry two Stage-7 levers, recorded here so they are
+not forgotten: (1) **speculative decoding with Qwen3.5's own MTP draft head** (the very head
+4.1 strips with `--no-nextn`; llama.cpp can export it as a draft model and run it on CPU —
+the classic 1.5–2× decode win when the draft is this cheap), (2) **measure on the real cloud
+vCPU** (a throttled laptop core under `--cpus=2` is a pessimistic stand-in). The 4 s figure
+was a guess written before any GGUF existed; this is the first real number, and it goes in
+the README as is.
+
+**Stage 4 definition of done — met.** `docker run -p 8080:8080 tinyllm-ops` parses SMS to
+correct, schema-valid JSON on a laptop with no GPU (model from a mount or from Blob);
+integration test green. Open items carried to later stages: image trim (scipy/sklearn, ~190 MB),
+MTP speculative decoding (7), cloud-vCPU latency (5), SAS URL as an ACA secret (5).

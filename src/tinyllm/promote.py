@@ -39,9 +39,12 @@ from tinyllm.registry import (
     MODEL_ARTIFACT,
     MODEL_NAME,
     REPORT_ARTIFACT,
+    SERVED_QUANT,
     get_report,
     get_version_by_alias,
+    publish_champion_gguf,
     set_alias,
+    unset_alias,
 )
 
 # Measured seed noise floor on gate_v2, in rows (docs/decisions.md, 2026-09-12).
@@ -56,9 +59,14 @@ def promote_if_better(
     model_name: str = MODEL_NAME,
     gate_manifest: str = GATE_MANIFEST,
     client: MlflowClient | None = None,
+    quant: str = SERVED_QUANT,
 ) -> dict:
     """Decide, print one human line, move ``@champion`` only on PROMOTED
-    (and never with ``dry_run``). Returns the decision as a dict."""
+    (and never with ``dry_run``). Returns the decision as a dict.
+
+    Promotion is a two-step transaction (4.6): move the alias, then copy the
+    champion's GGUF to the fixed Blob address serving reads. If the copy fails
+    the alias is moved back, so registry and production never disagree."""
     client = client or MlflowClient()
     with open(gate_manifest) as f:
         manifest = json.load(f)
@@ -95,8 +103,26 @@ def promote_if_better(
     decision.update(n=n, threshold=threshold, gate_manifest_sha=sha, dry_run=dry_run)
     if decision["promoted"] and not dry_run:
         set_alias(client, model_name, CHAMPION, challenger.version)
-        # TODO(4.6): copy the champion's GGUF to the champion Blob path here (the
-        # promote.yml step). The GGUF does not exist until Stage 4.
+        try:
+            info = publish_champion_gguf(challenger, quant, client=client)
+        except Exception as e:
+            if champion is not None:
+                set_alias(client, model_name, CHAMPION, champion.version)
+            else:
+                unset_alias(client, model_name, CHAMPION)
+            decision.update(
+                promoted=False,
+                reason="publish_failed",
+                line=(
+                    f"ROLLED BACK v{challenger.version}: alias moved, GGUF copy failed "
+                    f"({type(e).__name__}: {e}); @champion restored to "
+                    + (f"v{champion.version}" if champion is not None else "unset")
+                ),
+            )
+            print(decision["line"])
+            raise
+        decision["published"] = info
+        decision["line"] += f"; served {quant} sha {info['sha256'][:12]} published"
     print(decision["line"] + ("  [dry-run: nothing moved]" if dry_run else ""))
     return decision
 
@@ -238,8 +264,13 @@ def main() -> None:
     parser.add_argument(
         "--dry-run", action="store_true", help="print the decision, move nothing"
     )
+    parser.add_argument(
+        "--quant", default=SERVED_QUANT, help="which GGUF to publish on promotion"
+    )
     args = parser.parse_args()
-    promote_if_better(args.threshold, args.min_gain_rows, dry_run=args.dry_run)
+    promote_if_better(
+        args.threshold, args.min_gain_rows, dry_run=args.dry_run, quant=args.quant
+    )
 
 
 if __name__ == "__main__":

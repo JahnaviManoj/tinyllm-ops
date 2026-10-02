@@ -13,6 +13,15 @@ import pytest
 from mlflow.tracking import MlflowClient
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--url", default="http://localhost:8080", help="running gateway (integration)"
+    )
+    parser.addoption(
+        "--api-key", default="dev", help="API key the gateway was started with"
+    )
+
+
 @pytest.fixture(scope="session")
 def _migrated_db(tmp_path_factory):
     path = tmp_path_factory.mktemp("mlflow-schema") / "mlflow.db"

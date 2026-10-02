@@ -130,3 +130,65 @@ def test_challenger_that_is_already_champion_is_rejected(store):
     d = promote.promote_if_better(threshold=0.595)
 
     assert (d["promoted"], d["reason"]) == (False, "already_champion")
+
+
+# ---- 4.6: promotion = alias move + GGUF publish, as one transaction
+
+
+@pytest.fixture(autouse=True)
+def publish(monkeypatch):
+    """Every promotion test runs with the Blob publish faked (autouse); a test
+    that wants the failure path sets ``fake.fail = True``."""
+    calls = []
+
+    def fake(mv, quant, client=None):
+        calls.append((mv.version, quant))
+        if getattr(fake, "fail", False):
+            raise OSError("blob down")
+        return {"sha256": "abc123def456", "quant": quant}
+
+    monkeypatch.setattr(promote, "publish_champion_gguf", fake)
+    return fake, calls
+
+
+def test_promotion_publishes_the_served_quant(store, publish):
+    _, calls = publish
+    _, chall = registry_with(store, champion_rows=229, challenger_rows=250)
+
+    d = promote.promote_if_better(threshold=0.595)
+
+    assert d["promoted"] and calls == [(chall.version, "Q8_0")]
+    assert d["published"]["sha256"] == "abc123def456" and "published" in d["line"]
+
+
+def test_failed_publish_rolls_the_alias_back_to_the_old_champion(store, publish):
+    fake, calls = publish
+    fake.fail = True
+    champ, _ = registry_with(store, champion_rows=229, challenger_rows=250)
+
+    with pytest.raises(OSError, match="blob down"):
+        promote.promote_if_better(threshold=0.595)
+
+    assert champion_version() == champ.version  # moved, then moved back
+    assert len(calls) == 1
+
+
+def test_failed_publish_with_no_old_champion_unsets_the_alias(store, publish):
+    fake, _ = publish
+    fake.fail = True
+    register_as_challenger(run_with(store, "model"), report(229))
+
+    with pytest.raises(OSError):
+        promote.promote_if_better(threshold=0.595)
+
+    with pytest.raises(mlflow.exceptions.MlflowException):
+        champion_version()  # nothing wears @champion
+
+
+def test_dry_run_never_publishes(store, publish):
+    _, calls = publish
+    registry_with(store, champion_rows=229, challenger_rows=250)
+
+    promote.promote_if_better(threshold=0.595, dry_run=True)
+
+    assert calls == []

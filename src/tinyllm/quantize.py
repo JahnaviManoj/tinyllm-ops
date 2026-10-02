@@ -46,16 +46,21 @@ def quantize_to_gguf(
     ``{"f16": path, "Q8_0": path, ...}``. Existing outputs are reused.
     With ``run_id``, each quant's byte size is logged as ``gguf_bytes_<quant>``
     and the quant files are attached under ``gguf/``."""
-    llama = _llama_cpp_dir(llama_cpp_dir)
     out = Path(out_dir) if out_dir else Path(merged_dir).resolve().parent / ARTIFACT_DIR
     out.mkdir(parents=True, exist_ok=True)
+    _llama: list[Path] = []  # resolved only if something must actually be built
+
+    def llama_dir() -> Path:
+        if not _llama:
+            _llama.append(_llama_cpp_dir(llama_cpp_dir))
+        return _llama[0]
 
     f16 = out / "f16.gguf"
     if not _present(f16):
         _run(
             [
                 sys.executable,
-                str(llama / "convert_hf_to_gguf.py"),
+                str(llama_dir() / "convert_hf_to_gguf.py"),
                 merged_dir,
                 "--outfile",
                 str(f16),
@@ -70,7 +75,7 @@ def quantize_to_gguf(
         if not _present(target):
             _run(
                 [
-                    str(llama / "build" / "bin" / "llama-quantize"),
+                    str(llama_dir() / "build" / "bin" / "llama-quantize"),
                     str(f16),
                     str(target),
                     q,
@@ -130,6 +135,8 @@ def _git_head(repo: Path) -> str | None:
 
 
 def _log_to_run(run_id: str, files: dict[str, str]) -> None:
+    # azureml-mlflow gives each upload batch 300 s by default; a GGUF needs more.
+    os.environ.setdefault("AZUREML_ARTIFACTS_DEFAULT_TIMEOUT", "14400")
     from mlflow.tracking import MlflowClient
 
     client = MlflowClient()

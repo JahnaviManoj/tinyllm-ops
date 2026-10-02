@@ -14,7 +14,10 @@ serving go through them too, so the backend never leaks into callers.
 
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
 import json
+import os
 import tempfile
 
 import mlflow
@@ -32,6 +35,12 @@ MODEL_ARTIFACT = "model"
 REPORT_ARTIFACT = "eval_report.json"
 # The exam. final_v2, OOD and the scam holdout are spent — never in a pipeline.
 GATE_MANIFEST = "manifests/test_gate_v2.json"
+# 4.6: the one fixed address serving reads. Container "artifacts" (manifest.CONTAINER),
+# blob "champion/model.gguf" + "champion/model.json". Whatever is here IS the champion;
+# the container downloads it at start and never talks to MLflow.
+CHAMPION_BLOB = "champion/model.gguf"
+CHAMPION_INFO_BLOB = "champion/model.json"
+SERVED_QUANT = "Q8_0"  # 4.2 decision
 
 
 def register_as_challenger(
@@ -101,6 +110,64 @@ def get_version_by_alias(client: MlflowClient, name: str, alias: str) -> ModelVe
             error_code=RESOURCE_DOES_NOT_EXIST,
         )
     return client.get_model_version(name, version)
+
+
+def unset_alias(client: MlflowClient, name: str, alias: str) -> None:
+    """Remove ``@alias`` (the rollback when there was no previous champion)."""
+    try:
+        client.delete_registered_model_alias(name, alias)
+    except MlflowException as e:
+        if not _alias_api_missing(e):
+            raise
+        client.delete_registered_model_tag(name, f"alias.{alias}")
+
+
+def publish_champion_gguf(
+    mv: ModelVersion,
+    quant: str = SERVED_QUANT,
+    *,
+    client: MlflowClient | None = None,
+) -> dict:
+    """Copy ``gguf/<quant>.gguf`` from ``mv``'s run to the fixed champion address
+    in Blob (overwrite) with a ``model.json`` beside it. Returns that record.
+    Serving reads only this address, so the MLflow registry stays metadata-only."""
+    client = client or MlflowClient()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = mlflow.artifacts.download_artifacts(
+            run_id=mv.run_id,
+            artifact_path=f"gguf/{quant}.gguf",
+            dst_path=tmp,
+            tracking_uri=client.tracking_uri,
+        )
+        sha = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                sha.update(chunk)
+        info = {
+            "model_version": str(mv.version),
+            "run_id": mv.run_id,
+            "quant": quant,
+            "sha256": sha.hexdigest(),
+            "bytes": os.path.getsize(path),
+            "published_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+        }
+        with open(path, "rb") as f:
+            blob_client(CHAMPION_BLOB).upload_blob(f, overwrite=True, max_concurrency=4)
+        blob_client(CHAMPION_INFO_BLOB).upload_blob(
+            json.dumps(info, indent=2).encode(), overwrite=True
+        )
+    return info
+
+
+def blob_client(blob_path: str):
+    """A BlobClient on the artifacts container (tests swap this function out)."""
+    from azure.storage.blob import BlobClient
+
+    from tinyllm.manifest import CONTAINER, _conn_str
+
+    return BlobClient.from_connection_string(
+        _conn_str(), CONTAINER, blob_path, connection_timeout=120, read_timeout=120
+    )
 
 
 def _alias_api_missing(e: MlflowException) -> bool:

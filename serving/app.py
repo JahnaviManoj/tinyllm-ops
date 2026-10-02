@@ -77,8 +77,9 @@ def check_key(key: str | None = Header(None, alias="x-api-key")) -> str:
     return key
 
 
-async def call_llama(prompt: str) -> str:
-    """One completion from llama-server, grammar-constrained to the schema.
+async def call_llama(prompt: str) -> tuple[str, dict]:
+    """One completion from llama-server, grammar-constrained to the schema, plus
+    the server's own timings (tokens, tokens/s) for the response headers.
     cache_prompt stays off: on this recurrent architecture the server's prompt
     cache snapshots the full state per request (decisions.md 2026-10-01)."""
     async with httpx.AsyncClient(timeout=LLAMA_TIMEOUT_S) as client:
@@ -93,7 +94,8 @@ async def call_llama(prompt: str) -> str:
             },
         )
         r.raise_for_status()
-        return r.json()["content"]
+        body = r.json()
+        return body["content"], body.get("timings", {})
 
 
 def log_request(entry: dict) -> None:
@@ -118,7 +120,7 @@ async def parse(body: ParseRequest, response: Response):
     stats["requests"] += 1
     t0 = time.time()
     try:
-        raw = await call_llama(render(body.sms))
+        raw, timings = await call_llama(render(body.sms))
     except httpx.HTTPError as e:
         stats["upstream_error"] += 1
         raise HTTPException(
@@ -143,6 +145,12 @@ async def parse(body: ParseRequest, response: Response):
     stats["latency_ms_sum"] += latency_ms
     response.headers["X-Latency-Ms"] = f"{latency_ms:.0f}"
     response.headers["X-Rulebook-Applied"] = str(applied).lower()
+    if timings:  # llama-server's own numbers: what Stage 6 charts, what 4.7 probes
+        response.headers["X-Gen-Tokens"] = str(timings.get("predicted_n", ""))
+        response.headers["X-Gen-Tok-Per-S"] = (
+            f"{timings.get('predicted_per_second', 0):.1f}"
+        )
+        response.headers["X-Prompt-Tokens"] = str(timings.get("prompt_n", ""))
     log_request(
         {
             "sms": body.sms,

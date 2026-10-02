@@ -89,3 +89,14 @@ def test_quantize_step_passes_the_dict_through(monkeypatch):
 
 def test_pinned_commit_is_a_full_sha():
     assert len(quantize.LLAMA_CPP_COMMIT) == 40
+
+
+def test_existing_outputs_need_no_llama_cpp(fake_llama, merged, monkeypatch):
+    quantize_to_gguf(
+        str(merged), llama_cpp_dir=str(fake_llama)
+    )  # builds everything once
+    monkeypatch.delenv("LLAMA_CPP_DIR", raising=False)
+
+    paths = quantize_to_gguf(str(merged))  # no llama.cpp anywhere: must just reuse
+
+    assert set(paths) == {"f16", "Q8_0", "Q4_K_M"}

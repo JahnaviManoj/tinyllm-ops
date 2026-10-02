@@ -90,6 +90,8 @@ default-groups = ["dev", "local"]
 [tool.pytest.ini_options]
 pythonpath = [".", "src"]
 testpaths = ["tests"]  # never collect llama.cpp/ (its own python tests need appium etc.)
+markers = ["integration: needs a running gateway (docker run …); select with -m integration --url …"]
+addopts = "-m 'not integration'"
 
 [dependency-groups]
 local = [

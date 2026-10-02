@@ -62,6 +62,9 @@ smallest quant within 7 rows of f16; 4-bit lost 20 rows, 8-bit lost 2). Behind t
 same model is decoded under a JSON grammar (no verdict changes, parse rate 100%) and a
 deterministic merchant→category rulebook, which fixes 15 gate rows and breaks none: the model's
 number is 227/356, the served system's is 242/356 (68.0%), always reported as two columns.
+Latency through the container, Q8_0 on 2 CPU threads, a full transaction record (78 output
+tokens): p50 5.1 s, p95 5.3 s at 19 tokens/s; short or non-transaction SMS ≈ 2 s. Measured on a
+laptop core; the image is 919 MB without the model and boots from Blob in 46 s.
 
 ¹ Strict metric: output must parse AND validate against the schema with *every* field
 exactly right. The gate is 356 SMS written by a *different* teacher model than the training
