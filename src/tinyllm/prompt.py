@@ -26,7 +26,7 @@ def format_example(ex: dict) -> dict:
 
 
 def chat_prompt(tok, sms: str) -> str:
-    """Chat-template the SAME task text used everywhere (single source of truth).
+    """Chat-template the SAME task text used since era 1 (single source of truth).
 
     add_generation_prompt=True appends the assistant header INCLUDING Qwen3.5's
     empty <think></think> block — completions start after it. Never hand-write

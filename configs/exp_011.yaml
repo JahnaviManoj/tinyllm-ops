@@ -1,0 +1,18 @@
+# 2.9 ablation: exp_009 recipe + EOS + sender-ID augmentation, but ORIGINAL train_v1
+# data. Isolates the scenario-data variable from the EOS/augmentation variables.
+# See docs/decisions.md 2026-08-09.
+model_id: google/gemma-3-270m-it
+dataset_manifest: manifests/train_v1.json
+val_manifest: manifests/val_v1.json
+seed: 42
+lora:
+  r: 32
+  alpha: 64
+  target_modules: [q_proj, k_proj, v_proj, o_proj]
+train:
+  learning_rate: 2.0e-4
+  epochs: 4
+  batch_size: 8
+  gradient_accumulation: 2
+augment:
+  sender_id_frac: 0.3

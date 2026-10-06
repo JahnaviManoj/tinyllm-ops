@@ -3,8 +3,8 @@
 Loads the base model exactly as train.py will (NF4 + the given compute dtype),
 generates on 5 SMS through chat_prompt(), and prints the raw text. YOU eyeball it.
 Garbage / empty / repeating output ⇒ that dtype is unusable on this GPU: set
-compute_dtype: fp32 in the configs and accept ~2× the time. (A small model on
-a pre-Ampere card in fp16 can produce NaN logits that only LOOKING catches.)
+compute_dtype: fp32 in the configs and accept ~2× the time. (Era 1's scar: Gemma on
+a pre-Ampere card in fp16 produced NaN logits that only LOOKING caught.)
 
     python scripts/gen_smoke.py data/generated/train_v3.jsonl            # 2B, fp16
     python scripts/gen_smoke.py data/generated/train_v3.jsonl --model Qwen/Qwen3.5-0.8B \

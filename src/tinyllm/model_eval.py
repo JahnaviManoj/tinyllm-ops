@@ -5,8 +5,8 @@ scam-holdout eval, and later the Stage 3 promotion gate. Prompts come from
 tinyllm.prompt — the same bytes the model saw in training; using any other
 prompt here would measure train/serve skew, not the model.
 
---chat      chat-template the prompt (Qwen). MUST match how the model
-            was trained: --chat for chat_format runs, no flag for raw-prompt runs.
+--chat      chat-template the prompt (Qwen, Era 2). MUST match how the model
+            was trained: --chat for exp_1xx, no flag for the Era-1 270M runs.
 --rows-out  per-row correctness JSON for scripts/mcnemar.py (the tie rule).
 --backend   hf (default): load the merged model in-process.
             llama: POST each prompt to a running llama-server (Stage 4.2) —
@@ -49,7 +49,7 @@ def predict_merged(
     for i, sms in enumerate(sms_list):
         # Identical bytes to training. chat: the template string already
         # carries every special token, so add none (TRL tokenized the training
-        # prompt the same way). raw: plain prompt, no template.
+        # prompt the same way). raw: era-1 behaviour, unchanged.
         text_in = chat_prompt(tok, sms) if chat else build_prompt(sms)
         inputs = tok(text_in, return_tensors="pt", add_special_tokens=not chat).to(
             device
