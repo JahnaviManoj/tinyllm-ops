@@ -1,10 +1,10 @@
 """Zero-shot / few-shot baselines (tutorial §2.6) — the "before" numbers.
 
-The Era-2 ladder this file provides rungs for:
+The baseline ladder this file provides rungs for:
     regex → zero-shot local → few-shot local → few-shot BIG → fine-tuned
 
 - zero-local / few-local: any HF instruct model, pinned by --local-model /
-  --local-revision (Era 1: gemma-3-270m-it; Era 2: Qwen3.5-2B and -0.8B).
+  --local-revision (Qwen3.5-2B and -0.8B).
   predict_local applies the tokenizer's chat template itself — there is no
   --chat flag here because the base instruct model has never seen our
   training prompt; the baseline IS "what the model does with a chat request".
@@ -99,8 +99,8 @@ def predict_local(
 
     tok = AutoTokenizer.from_pretrained(model_id, revision=revision)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # float32, NOT float16: Gemma's activations overflow fp16 and pre-Ampere
-    # GPUs lack bf16. 270M ≈ 1.1 GB, 0.8B ≈ 3.2 GB (fits a 4 GB card, barely),
+    # float32, NOT float16: small models' activations can overflow fp16 and pre-Ampere
+    # GPUs lack bf16. 0.8B ≈ 3.2 GB (fits a 4 GB card, barely),
     # 2B ≈ 8 GB → Colab T4 only.
     model = AutoModelForCausalLM.from_pretrained(
         model_id, revision=revision, dtype=torch.float32
@@ -169,7 +169,7 @@ def main():
     parser.add_argument(
         "--mode", required=True, choices=["zero-local", "few-local", "few-big"]
     )
-    parser.add_argument("--local-model", default="google/gemma-3-270m-it")
+    parser.add_argument("--local-model", default="Qwen/Qwen3.5-0.8B")
     parser.add_argument("--local-revision", default=None)
     parser.add_argument(
         "--train-pool",

@@ -1,6 +1,6 @@
-"""Deterministic merchant→category rulebook (era-2 lever #3).
+"""Deterministic merchant→category rulebook (lever #3).
 
-Sources: Era-1 TRAIN-side review conventions + general knowledge. NEVER gate/final
+Sources: TRAIN-side review conventions + general knowledge. NEVER gate/final
 rows — enforced by git history: this file's commit predates the gate_v2 review.
 Used (a) to post-correct teacher labels at assembly and (b) as a Stage-4 serve-time
 guard (reported as a separate column there — never silently folded in)."""
@@ -19,7 +19,7 @@ RULES = {  # merchant-pattern: category — STARTER SET, grow to ~200
     # more specific patterns FIRST: dict order is match order
     "amazon prime": "entertainment",
     # transport = intra-city rides (cab/auto/metro/fuel); travel = intercity/flights/
-    # trains/hotels. Era-1 hand-reviewed gold: uber/ola → transport 15/15 (2026-09-07 fix,
+    # trains/hotels. Hand-reviewed gold: uber/ola → transport 15/15 (2026-09-07 fix,
     # justified from gate_v1/final_v1 + train_v3 conventions, NOT from gate_v2 rows).
     "swiggy": "food",
     "zomato": "food",
