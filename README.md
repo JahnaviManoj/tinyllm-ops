@@ -1,4 +1,4 @@
-# TinyLLM Ops 💸📱
+# TinyLLM Ops 
 
 **A 0.8B language model fine-tuned to read Indian bank SMS and flag scams, small enough to
 run offline on a CPU or a phone, wrapped in the MLOps machinery that grades it honestly,
@@ -12,9 +12,18 @@ drifts. Built for about $40.**
 | Real scam texts flagged, none mistaken for a transaction | **55 of 60** (91.7%) |
 | Served model size and speed on a laptop CPU | **0.81 GB · ~5 s per SMS on 2 threads** |
 
-<!-- image slot: demo GIF of `curl /parse` with an SMS in and the JSON out, or the browser demo. Goes here, above the fold. -->
+<p align="center">
+  <img src="docs/img/hero_sms_to_json.gif" width="560" alt="Animation: a bank SMS is typed out, the 0.8B model turns it into a strict JSON record, a scam SMS is flagged, then the six-step MLOps loop is walked through: Data, Train, Grade, Referee, Serve, Watch.">
+</p>
 
-**Status, honestly:** data, training, evaluation, pipeline + registry + referee, and
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/results_ladder_dark.svg">
+    <img src="docs/img/results_ladder_light.svg" width="760" alt="Bar chart of strict exact match on the 356-row gate set, grouped by approach: regex 0%; zero-shot 0%, 0.8B few-shot 6.5%, 2B few-shot 11%; fine-tuned 2B 64.9% and fine-tuned 0.8B (this repo) 64.3%; Gemma 4 26B few-shot 27% with a fixed prompt and 72.2% when told the schema.">
+  </picture>
+</p>
+
+**Status:** data, training, evaluation, pipeline + registry + referee, and
 quantize + serve are built. CI/CD and monitoring with automated retraining are designed and
 are the next two stages. The table under "Why the engineering is the point" marks each.
 
@@ -81,8 +90,6 @@ JSON, pass the schema, and have *every* field right.
 | ↳ the served *system*: 8-bit + JSON grammar + merchant rulebook | 68.0% (242/356) | same |
 | Gemma 4 26B, few-shot, pre-registered prompt (~30× bigger) | 27.0% | API $$ |
 | Gemma 4 26B, few-shot, told the exact output schema | 72.2% | API $$ |
-
-<!-- image slot: bar chart of this ladder (0% → 6.5% → 11% → 64% → 72%), plus a small model-size vs accuracy scatter (0.8B, 2B, 26B). -->
 
 **What the table says, in plain words.** Regex scores zero and the small models score zero
 out of the box. Fine-tuning is the big change: it takes the 0.8B from 0% to 64% in one
