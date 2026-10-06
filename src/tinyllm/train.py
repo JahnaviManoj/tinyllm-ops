@@ -8,8 +8,7 @@ stale), prompts come from tinyllm.prompt (the ONE place they may live), and
 every run logs params, git commit, loss curves and the adapter to MLflow
 (MLFLOW_TRACKING_URI from the environment / .env — azureml:// since 2.8).
 
-Era-2 additions — all config-driven, all defaulting to Era-1 behaviour so
-exp_001–014 stay re-runnable:
+Config-driven options (all optional, all default off):
   - model_revision       pin the exact HF commit
   - chat_format          True → {"prompt","completion"} rows built with the
                          tokenizer's chat template; TRL 1.12 then computes loss
@@ -77,10 +76,10 @@ def load_from_manifest(
     chat=True  → {"prompt","completion"} rows; TRL masks the prompt so the loss
                  lands on the JSON only. The prompt comes from chat_prompt(tok,…)
                  — the same helper model_eval --chat and serving use.
-    chat=False → era-1 raw "text" rows (exp_009 remains re-runnable).
+    chat=False → raw "text" rows (no chat template).
 
     `eos` is appended to every completion — without it the model never sees a
-    stop signal (the first Era-1 sweep's outputs trailed junk). TRL would add
+    stop signal and its outputs trail junk. TRL would add
     it anyway when missing; explicit is clearer.
     `sender_id_frac` applies the DLT sender-ID augmentation to a seeded fraction
     of rows at load time (train split only; corpus-sourced UK rows are exempt —
