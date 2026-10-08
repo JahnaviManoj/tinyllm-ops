@@ -1,0 +1,28 @@
+# 5.3 proof: GitHub reaches Azure with NO stored cloud credential.
+# GitHub mints a minutes-lived OIDC token for this workflow; Azure trusts it because the app
+# registration carries a federated credential for repo:JahnaviManoj/tinyllm-ops on main.
+name: azure-login-check
+
+on:
+  workflow_dispatch:          # the "Run workflow" button
+  push:
+    branches: [main]
+    paths: [".github/workflows/azure-login-check.yml"]
+
+permissions:
+  id-token: write             # lets the job request the OIDC token
+  contents: read
+
+jobs:
+  login:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}          # IDs, not secrets
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Who am I in Azure?
+        run: |
+          az account show --query '{subscription:name, tenant:tenantId, user:user.name}' -o table
+          az group show -n tinyllm-rg --query '{rg:name, location:location}' -o table
