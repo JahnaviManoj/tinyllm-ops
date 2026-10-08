@@ -11,6 +11,7 @@ drifts. Built for about $40.**
 | Frozen final set, opened exactly once | **59.9%** (106/177) |
 | Real scam texts flagged, none mistaken for a transaction | **55 of 60** (91.7%) |
 | Served model size and speed on a laptop CPU | **0.81 GB · ~5 s per SMS on 2 threads** |
+| Live on Azure Container Apps, scale-to-zero (2 vCPU) | **warm 4.2 s per SMS · cold start 20 s · idle ≈ $0** |
 
 <p align="center">
   <img src="docs/img/hero_sms_to_json.gif" width="560" alt="Animation: a bank SMS is typed out, the 0.8B model turns it into a strict JSON record, a scam SMS is flagged, then the six-step MLOps loop is walked through: Data, Train, Grade, Referee, Serve, Watch.">
@@ -162,7 +163,12 @@ loop that most fine-tuning demos never build.
 
 ## Try it, and reproduce the numbers
 
-Run the served system locally (needs Docker and the champion GGUF, published to Blob on
+The service is live (API-keyed; keys on request):
+`https://tinyllm-api.jollyforest-e0a71c6a.southcentralus.azurecontainerapps.io/parse` —
+POST `{"sms": "..."}` with an `x-api-key` header; a full transaction record takes ~4 s warm,
+the first call after an idle spell ~20 s while the container boots from zero.
+
+Or run the served system locally (needs Docker and the champion GGUF, published to Blob on
 promotion):
 
 ```bash
