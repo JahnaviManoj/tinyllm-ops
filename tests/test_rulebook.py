@@ -49,5 +49,5 @@ def test_amazon_prime_and_amazon_pay():
 
 
 def test_non_transaction_untouched():
-    ex, hit = apply_rulebook({"sms": "x", "label": {"is_transaction": False}})
+    _, hit = apply_rulebook({"sms": "x", "label": {"is_transaction": False}})
     assert not hit

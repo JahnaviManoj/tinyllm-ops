@@ -1,0 +1,74 @@
+# CI (tutorial 5.4): every pull request and every push to main.
+# Fast-and-shallow first, slow-and-deep last:
+#   lint (s) → unit tests (~40 s, gates + gateway with the model faked) → Docker build → the
+#   real container answering 20 gate SMS with the REAL champion (Q8_0 from Blob, in-region).
+# The training DAG is NOT here — GitHub's runners have no GPU; it runs in CD (5.5).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  UV_PYTHON: "3.11"
+
+jobs:
+  test:
+    name: lint + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install (pipelines + serve extras, no training stack)
+        run: uv sync --extra pipelines --extra serve
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest -q   # integration tests are deselected by pyproject addopts
+
+  integration:
+    name: build image + real container test
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the serving image (layers cached in GitHub's cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: serving/Dockerfile
+          tags: tinyllm-ops:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Start the container with the real champion from Blob
+        env:
+          MODEL_URL: ${{ secrets.MODEL_URL }}
+          MODEL_SHA256: ${{ secrets.MODEL_SHA256 }}
+        run: |
+          test -n "$MODEL_URL" || { echo "MODEL_URL secret is not set"; exit 1; }
+          docker run -d --name api -p 8080:8080 -e API_KEYS=ci \
+            -e MODEL_URL="$MODEL_URL" -e MODEL_SHA256="$MODEL_SHA256" tinyllm-ops:ci
+          for i in $(seq 1 180); do
+            curl -sf localhost:8080/healthz >/dev/null && break
+            if [ "$(docker inspect -f '{{.State.Running}}' api)" != "true" ]; then docker logs api; exit 1; fi
+            sleep 2
+          done
+          curl -sf localhost:8080/healthz
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --extra serve
+      - name: Integration test (20 gate SMS → schema-valid records)
+        env:
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+        run: uv run pytest tests/test_integration.py -m integration --url http://localhost:8080 --api-key ci -q
+      - name: Container log on failure
+        if: failure()
+        run: docker logs api | tail -50

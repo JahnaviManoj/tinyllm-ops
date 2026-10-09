@@ -25,6 +25,7 @@ import random
 import re
 import subprocess
 import urllib.request
+
 from tinyllm.data_gen import dedupe
 
 GIST_RAW = (
@@ -36,7 +37,7 @@ REPOS = {
     "transaction-sms-parser": "https://github.com/saurabhgupta050890/transaction-sms-parser",
 }
 SMS_HINT = re.compile(
-    r"(debited|credited|withdrawn|spent|received|due by|sent to|Paid Rs)", re.I
+    r"(debited|credited|withdrawn|spent|received|due by|sent to|Paid Rs)", re.IGNORECASE
 )
 QUOTED = re.compile(r"'([^']{40,300})'|\"([^\"]{40,300})\"")
 LOWER_X_RUN = re.compile(r"x{2,}")  # sanitized digits; uppercase X = mask, kept
@@ -80,7 +81,9 @@ def from_repos() -> list[dict]:
             fp = os.path.join(path, rel)
             if not os.path.exists(fp):
                 continue
-            for m in QUOTED.finditer(open(fp, encoding="utf8", errors="ignore").read()):
+            with open(fp, encoding="utf8", errors="ignore") as fh:
+                src = fh.read()
+            for m in QUOTED.finditer(src):
                 s = (m.group(1) or m.group(2)).strip()
                 if SMS_HINT.search(s) and not s.endswith(("=", ";")):
                     rows.append(

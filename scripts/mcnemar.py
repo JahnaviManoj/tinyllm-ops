@@ -7,8 +7,9 @@ import json
 import sys
 from math import comb
 
-a = {r["sms"]: r["correct"] for r in json.load(open(sys.argv[1]))}
-b = {r["sms"]: r["correct"] for r in json.load(open(sys.argv[2]))}
+with open(sys.argv[1]) as fa, open(sys.argv[2]) as fb:
+    a = {r["sms"]: r["correct"] for r in json.load(fa)}
+    b = {r["sms"]: r["correct"] for r in json.load(fb)}
 keys = a.keys() & b.keys()
 x = sum(1 for k in keys if a[k] and not b[k])  # A right, B wrong
 y = sum(1 for k in keys if b[k] and not a[k])  # B right, A wrong

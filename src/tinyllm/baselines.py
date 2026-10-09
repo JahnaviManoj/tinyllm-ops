@@ -27,7 +27,9 @@ import argparse
 import json
 
 from tinyllm.eval import evaluate
-from tinyllm.extract import extract_json  # noqa: F401  (re-export: older callers import it here)
+from tinyllm.extract import (
+    extract_json,
+)
 
 BIG_MODEL_ID = "gemma-4-26b-a4b-it"  # via Gemini API; NOT the test-set teacher family
 
@@ -63,7 +65,8 @@ FEW_SHOT_SPEC = [
 
 
 def few_shot_block(train_path: str) -> str:
-    rows = [json.loads(line) for line in open(train_path)]
+    with open(train_path) as f:
+        rows = [json.loads(line) for line in f]
     picked = []
     for kind, channel in FEW_SHOT_SPEC:
         for r in rows:
@@ -190,7 +193,8 @@ def main():
     )
     args = parser.parse_args()
 
-    rows = [json.loads(line) for line in open(args.data)][: args.limit]
+    with open(args.data) as f:
+        rows = [json.loads(line) for line in f][: args.limit]
     sms_list = [r["sms"] for r in rows]
     examples = "" if args.mode == "zero-local" else few_shot_block(args.train_pool)
     model_id = BIG_MODEL_ID if args.mode == "few-big" else args.local_model

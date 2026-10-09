@@ -27,6 +27,7 @@ import argparse
 import hashlib
 import json
 import os
+import pathlib
 import random
 import subprocess
 
@@ -90,15 +91,17 @@ def load_from_manifest(
 
     if chat and tok is None:
         raise ValueError("chat=True needs the tokenizer (tok=...)")
-    m = json.load(open(manifest_path))
+    with open(manifest_path) as f:
+        m = json.load(f)
     local = os.path.join("data/generated", os.path.basename(m["blob_path"]))
     ok = (
         os.path.exists(local)
-        and hashlib.sha256(open(local, "rb").read()).hexdigest() == m["sha256"]
+        and hashlib.sha256(pathlib.Path(local).read_bytes()).hexdigest() == m["sha256"]
     )
     if not ok:
         fetch_dataset(manifest_path, local)
-    rows = [json.loads(line) for line in open(local)][:limit]
+    with open(local) as f:
+        rows = [json.loads(line) for line in f][:limit]
     rng = random.Random(seed)
     out = []
     for r in rows:
@@ -134,11 +137,10 @@ def train(
     log_merged: bool = False,
     resume_from: str | None = None,
 ) -> str:
+    import mlflow
     from peft import LoraConfig, PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from trl import SFTConfig, SFTTrainer
-
-    import mlflow
 
     cfg = load_config(config_path)
     set_seed(cfg.seed)
@@ -181,7 +183,7 @@ def train(
         )
 
         frac = cfg.augment.sender_id_frac if cfg.augment else 0.0
-        ds_kw = dict(eos=tok.eos_token, tok=tok, chat=cfg.chat_format)
+        ds_kw = {"eos": tok.eos_token, "tok": tok, "chat": cfg.chat_format}
         val = (
             load_from_manifest(cfg.val_manifest, limit, **ds_kw)
             if cfg.val_manifest

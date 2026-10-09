@@ -44,7 +44,8 @@ def publish(
     seed: int | None,
     dry_run: bool = False,
 ) -> str:
-    data = open(data_path, "rb").read()
+    with open(data_path, "rb") as f:
+        data = f.read()
     sha = hashlib.sha256(data).hexdigest()
     with open(data_path) as f:
         num = sum(1 for _ in f)
@@ -92,7 +93,8 @@ def publish(
 def fetch_dataset(manifest_path: str, out_path: str):
     from azure.storage.blob import BlobClient
 
-    manifest = json.load(open(manifest_path))
+    with open(manifest_path) as f:
+        manifest = json.load(f)
     blob = BlobClient.from_connection_string(
         _conn_str(),
         CONTAINER,
@@ -108,7 +110,8 @@ def fetch_dataset(manifest_path: str, out_path: str):
             f"(expected {manifest['sha256'][:12]}…, got {actual[:12]}…)"
         )
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    open(out_path, "wb").write(data)
+    with open(out_path, "wb") as f:
+        f.write(data)
     print(
         f"fetched + verified {manifest['num_examples']} examples "
         f"({manifest['name']} {manifest['version']}) → {out_path}"

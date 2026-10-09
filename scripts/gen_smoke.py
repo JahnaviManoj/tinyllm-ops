@@ -39,7 +39,9 @@ model = AutoModelForCausalLM.from_pretrained(
 print(
     f"{a.model} @ {a.revision[:8]} · NF4 + {a.dtype} · {torch.cuda.get_device_name(0)}"
 )
-for r in [json.loads(line) for line in open(a.data)][: a.n]:
+with open(a.data) as _f:
+    rows = [json.loads(line) for line in _f][: a.n]
+for r in rows:
     ids = tok(chat_prompt(tok, r["sms"]), return_tensors="pt", add_special_tokens=False)
     ids = ids.to(model.device)
     out = model.generate(**ids, max_new_tokens=200, do_sample=False)

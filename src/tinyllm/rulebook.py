@@ -60,8 +60,8 @@ RULES = {  # merchant-pattern: category — STARTER SET, grow to ~200
     "groww": "investment",
     "upstox": "investment",
 }
-_PATTERNS = {k: re.compile(rf"\b{re.escape(k)}\b", re.I) for k in RULES}
-_SKIP = [re.compile(rf"\b{re.escape(k)}\b", re.I) for k in SKIP_COUNTERPARTIES]
+_PATTERNS = {k: re.compile(rf"\b{re.escape(k)}\b", re.IGNORECASE) for k in RULES}
+_SKIP = [re.compile(rf"\b{re.escape(k)}\b", re.IGNORECASE) for k in SKIP_COUNTERPARTIES]
 
 
 def apply_rulebook(ex: dict) -> tuple[dict, bool]:

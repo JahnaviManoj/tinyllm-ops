@@ -1,17 +1,19 @@
 import argparse
-import json
 import itertools
+import json
 import os
 import random
 import re
 import threading
 import time
+
 import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
-from tinyllm.schema import ExpenseRecord, Category, TxnType
-from tinyllm.templates import Template, TEMPLATES
+
+from tinyllm.schema import Category, ExpenseRecord, TxnType
+from tinyllm.templates import TEMPLATES, Template
 
 # Pinned, not "-latest": the dataset must be reproducible from the manifest.
 # (gemini-2.5-flash from the tutorial is closed to new accounts as of 2026-08,
@@ -134,20 +136,20 @@ _NOT_SMS_PREFIXES = (
 _SMSISH = re.compile(
     r"(bank|a/c|account|card|upi|kyc|otp|rs\.?\s?\d|inr|₹|http|"
     r"call|sms|prize|won|block|wallet|loan|bill|order|deliver)",
-    re.I,
+    re.IGNORECASE,
 )
 
 
 def _looks_like_sms(line: str) -> bool:
     if not line or line.startswith("#") or "**" in line:
         return False
-    if re.search(r"\[(?:Bank|Link|Amount|Number|Name|URL|X+)\]", line, re.I):
+    if re.search(r"\[(?:Bank|Link|Amount|Number|Name|URL|X+)\]", line, re.IGNORECASE):
         return False  # teacher hedged with placeholders instead of values
     if re.search(
         r"classifier|synthetic|test suite|these examples|evaluat|"
         r"linguistic|structural feature",
         line,
-        re.I,
+        re.IGNORECASE,
     ):
         return False  # meta-prose about the task instead of an SMS
     if line.lower().startswith(_NOT_SMS_PREFIXES):
@@ -328,8 +330,7 @@ def dedupe(examples, threshold=0.85, against=None):
 def _write_jsonl(path: str, rows: list[dict]):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w") as f:
-        for ex in rows:
-            f.write(json.dumps(ex, ensure_ascii=False) + "\n")
+        f.writelines(json.dumps(ex, ensure_ascii=False) + "\n" for ex in rows)
 
 
 def main():
@@ -390,14 +391,12 @@ def main():
     skip = {ex["template_id"] for ex in prior}
 
     os.makedirs(os.path.dirname(raw_path) or ".", exist_ok=True)
-    raw_f = open(raw_path, "w")
-    for ex in prior:  # rewrite, dropping any truncated tail line
-        raw_f.write(json.dumps(ex, ensure_ascii=False) + "\n")
+    raw_f = open(raw_path, "w")  # noqa: SIM115 — checkpoint file, kept open across the generation loop, closed below
+    raw_f.writelines(json.dumps(ex, ensure_ascii=False) + "\n" for ex in prior)
     raw_f.flush()
 
     def checkpoint(idx, rows):
-        for ex in rows:
-            raw_f.write(json.dumps(ex, ensure_ascii=False) + "\n")
+        raw_f.writelines(json.dumps(ex, ensure_ascii=False) + "\n" for ex in rows)
         raw_f.flush()
 
     templates = TEMPLATES[: args.max_templates] if args.max_templates else TEMPLATES

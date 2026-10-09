@@ -18,7 +18,7 @@ data/generated/test.jsonl yourself; this script refuses to use that name.
 import argparse
 import json
 import os
-from tinyllm.schema import ExpenseRecord, Category, Channel, TxnType
+
 from tinyllm.data_gen import (
     _call_teacher,
     _looks_like_sms,
@@ -27,6 +27,7 @@ from tinyllm.data_gen import (
     normalize_amount,
     normalize_currency,
 )
+from tinyllm.schema import Category, Channel, ExpenseRecord, TxnType
 
 TEST_TEACHER_MODEL = "gemini-3.5-flash"  # pinned; train teacher is 3.5-flash-lite
 
@@ -66,20 +67,24 @@ NEGATIVE_KINDS = [
     ("OTP messages from banks, card networks and UPI apps", 22, False),
     ("promotional offers from banks and credit cards", 22, False),
     (
-        "bank/fintech informational SMS: bill-due reminders, balance updates, "
-        "declined transactions, upcoming auto-debits, delivery updates",
+        (
+            "bank/fintech informational SMS: bill-due reminders, balance updates, "
+            "declined transactions, upcoming auto-debits, delivery updates"
+        ),
         22,
         False,
     ),
     (
-        "fictional scam SMS in the style that targets Indian bank users, WITHOUT "
-        "naming any real company — most real scams don't: 'Dear customer, your "
-        "bank account will be suspended today, complete KYC at "
-        "http://kyc-update-secure.in'; prize-draw wins asking for account details "
-        "or a claim fee; card-block reactivation via an unfamiliar link; UPI "
-        "collect-request tricks ('approve to RECEIVE Rs.5000'). Use concrete "
-        "invented details: Rs amounts, digit tails, fictional lookalike URLs. "
-        "No placeholders like [Bank] or [Link]",
+        (
+            "fictional scam SMS in the style that targets Indian bank users, WITHOUT "
+            "naming any real company — most real scams don't: 'Dear customer, your "
+            "bank account will be suspended today, complete KYC at "
+            "http://kyc-update-secure.in'; prize-draw wins asking for account details "
+            "or a claim fee; card-block reactivation via an unfamiliar link; UPI "
+            "collect-request tricks ('approve to RECEIVE Rs.5000'). Use concrete "
+            "invented details: Rs amounts, digit tails, fictional lookalike URLs. "
+            "No placeholders like [Bank] or [Link]"
+        ),
         60,
         True,
     ),
@@ -181,8 +186,7 @@ def main():
 
     os.makedirs(os.path.dirname(raw_path) or ".", exist_ok=True)
     with open(raw_path, "w") as raw_f:
-        for ex in prior:
-            raw_f.write(json.dumps(ex, ensure_ascii=False) + "\n")
+        raw_f.writelines(json.dumps(ex, ensure_ascii=False) + "\n" for ex in prior)
         raw_f.flush()
         for spec_id, spec in enumerate(_specs()):
             if spec_id in done:

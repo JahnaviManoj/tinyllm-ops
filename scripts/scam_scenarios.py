@@ -93,9 +93,9 @@ def main() -> None:
                 flush=True,
             )
     print(f"rejected by _looks_like_sms (refusals/meta/placeholders): {rejected}")
-    assert (
-        len(rows) > 60
-    ), "teacher refused or filter ate everything — inspect before proceeding"
+    assert len(rows) > 60, (
+        "teacher refused or filter ate everything — inspect before proceeding"
+    )
     with open(OUT, "w") as f:
         f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
     print(OUT, len(rows))

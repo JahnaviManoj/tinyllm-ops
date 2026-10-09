@@ -73,9 +73,10 @@ def _shape_to_regex(shape: str) -> re.Pattern:
         ):
             grp = CAPTURE[ph]
             # merchant/name/vpa share the counterparty group — only one may capture
-            if "(?P<counterparty>" in grp:
-                if any(p in used for p in ("merchant", "name", "vpa")):
-                    grp = GENERIC[ph]
+            if "(?P<counterparty>" in grp and any(
+                p in used for p in ("merchant", "name", "vpa")
+            ):
+                grp = GENERIC[ph]
             parts.append(grp)
             used.add(ph)
         else:
@@ -130,7 +131,8 @@ def main():
     parser.add_argument("paths", nargs="+")
     args = parser.parse_args()
     for path in args.paths:
-        rows = [json.loads(line) for line in open(path)]
+        with open(path) as f:
+            rows = [json.loads(line) for line in f]
         preds = [regex_parse(r["sms"]) for r in rows]
         matched = sum(p is not None for p in preds)
         report = evaluate(

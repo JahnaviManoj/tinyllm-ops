@@ -103,3 +103,14 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.15.22",
 ]
+
+[tool.ruff]
+# One ruff for laptop (pre-commit), CI and `uv run ruff`: the version is pinned in uv.lock and
+# .pre-commit-config.yaml must match it.
+target-version = "py311"
+
+[tool.ruff.lint]
+# Defaults, minus three blind-except rules: data_gen/baselines deliberately catch broad
+# exceptions around teacher-API calls and model-output parsing (a bad row is logged and skipped,
+# never fatal). Everything else is fixed, not ignored.
+ignore = ["BLE001", "S110", "S112"]

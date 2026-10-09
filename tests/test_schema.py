@@ -1,4 +1,5 @@
 import pytest
+
 from tinyllm.schema import ExpenseRecord
 
 
@@ -19,14 +20,14 @@ def test_valid_record_parses():
 
 
 def test_bad_amount_rejected():
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):  # pydantic ValidationError is a ValueError
         ExpenseRecord.model_validate(
             {"is_transaction": True, "amount": "45O.OO"}
         )  # letter O!
 
 
 def test_unknown_category_rejected():
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         ExpenseRecord.model_validate(
             {"is_transaction": True, "category": "crypto_gambling"}
         )

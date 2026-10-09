@@ -65,9 +65,11 @@ NEGATIVE_KINDS = [
         False,
     ),
     (
-        "fictional scam SMS imitating bank alerts without naming real companies: fake KYC "
-        "suspensions, prize draws, card-block reactivation links, UPI collect-request tricks, "
-        "with concrete invented amounts/tails/lookalike URLs",
+        (
+            "fictional scam SMS imitating bank alerts without naming real companies: fake KYC "
+            "suspensions, prize draws, card-block reactivation links, UPI collect-request tricks, "
+            "with concrete invented amounts/tails/lookalike URLs"
+        ),
         True,
     ),
 ]
@@ -132,14 +134,14 @@ def main():
         "data/generated/test_gate.jsonl",
         final_local,
     ):
-        guard += [json.loads(line) for line in open(path)]
+        with open(path) as f:
+            guard += [json.loads(line) for line in f]
     os.remove(final_local)  # final-set bytes do not linger in the working tree
 
     rows = generate()
     kept = dedupe(rows, against=guard)
     with open("data/generated/train_extra.jsonl", "w") as f:
-        for r in kept:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in kept)
     print(
         f"generated {len(rows)}, kept {len(kept)} after dedupe "
         f"(within-set + against {len(guard)} train/gate/final rows) → data/generated/train_extra.jsonl"
